@@ -1,0 +1,84 @@
+FROM node:20-alpine AS base
+ARG PNPM_VERSION=9
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV PNPM_STORE_PATH="/pnpm/store"
+
+# Install pnpm explicitly and keep the image small
+RUN npm install -g pnpm@"${PNPM_VERSION}" --no-audit --no-fund
+
+# -----------------------
+# Stage: dependencies
+# -----------------------
+FROM base AS deps
+WORKDIR /app
+
+# Copy only manifest files to leverage Docker layer cache for dependencies
+COPY package.json pnpm-lock.yaml* ./
+
+# Use BuildKit cache mounts for the pnpm store so repeated builds are much faster.
+# pnpm's store dir is set to /pnpm/store (PNPM_STORE_PATH).
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm/store --reporter=silent
+
+# -----------------------
+# Stage: builder
+# -----------------------
+FROM base AS builder
+WORKDIR /app
+
+# Copy cached deps and then copy source
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build args and envs (can be overridden at build time)
+ARG BUILD_NODE_ENV=production
+ARG NEXT_PUBLIC_MEDIAMTX_API_URL="/api/mediamtx"
+ENV NEXT_PUBLIC_MEDIAMTX_API_URL=${NEXT_PUBLIC_MEDIAMTX_API_URL}
+ARG NEXT_PUBLIC_MEDIAMTX_HLS_URL="http://localhost:80/hls"
+ENV NEXT_PUBLIC_MEDIAMTX_HLS_URL=${NEXT_PUBLIC_MEDIAMTX_HLS_URL}
+ENV NODE_ENV=${BUILD_NODE_ENV}
+ARG NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=${NEXT_TELEMETRY_DISABLED}
+
+# Use BuildKit cache mount for Next.js cache to accelerate incremental builds
+RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
+    pnpm run build
+
+# -----------------------
+# Stage: runtime (minimal)
+# -----------------------
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Default runtime envs (these can be overridden at container runtime with -e or --env-file)
+ARG NEXT_PUBLIC_MEDIAMTX_API_URL="/api/mediamtx"
+ARG NEXT_PUBLIC_MEDIAMTX_HLS_URL="http://192.168.50.11:80/hls"
+ENV NEXT_PUBLIC_MEDIAMTX_API_URL=${NEXT_PUBLIC_MEDIAMTX_API_URL}
+ENV MEDIAMTX_API_URL="http://publisher:9997"
+ENV NEXT_PUBLIC_MEDIAMTX_HLS_URL=${NEXT_PUBLIC_MEDIAMTX_HLS_URL}
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOST=0.0.0.0
+
+# Create non-root user and group
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy only runtime artifacts produced by Next.js standalone build
+COPY --from=builder /app/public ./public
+RUN mkdir -p .next && chown nextjs:nodejs .next
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Expose port (informational)
+EXPOSE 3000
+
+# Use non-root user
+USER nextjs
+
+# Make it easy to pass runtime envs:
+# - docker run -p 3000:3000 -e NODE_ENV=staging -e CUSTOM_VAR=foo my-next-app
+# - docker run --env-file ./env.prod -p 3000:3000 my-next-app
+CMD ["node", "server.js"]

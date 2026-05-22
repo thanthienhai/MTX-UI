@@ -1,0 +1,122 @@
+version: '3.8'
+
+# ------------------------------------------------------------------------------
+# Common configuration anchors (reusable across services)
+# ------------------------------------------------------------------------------
+x-restart-policy: &restart_policy
+  restart: unless-stopped
+
+x-pull-policy: &pull_policy
+  pull_policy: never          # Use local images only (adjust or remove as needed)
+
+x-depends_on-healthy: &depends_on_healthy
+  condition: service_healthy
+
+x-depends_on-default: &depends_on_default
+  condition: service_started
+
+# Generic healthcheck defaults – override per service if needed
+x-healthcheck-defaults: &healthcheck_defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 10s
+
+# ------------------------------------------------------------------------------
+# Services
+# ------------------------------------------------------------------------------
+services:
+  publisher:
+    <<: [*restart_policy, *pull_policy]
+    image: bluenviron/mediamtx:latest
+    container_name: mediamtx-publisher
+    ports:
+      - "9998:9998"
+      - "9999:9999"
+      - "9997:9997"
+      - "8554:8554"
+      - "1935:1935"
+      - "8888:8888"
+      - "8889:8889"
+      - "8890:8890/udp"
+      - "8189:8189/udp"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      MTX_RTSPTRANSPORTS: tcp
+      MTX_WEBRTCADDITIONALHOSTS: "localhost"
+      # MTX_PROTOCOLS_WEBRTC_ALLOWORIGIN: "*"
+      #healthcheck:
+      #  <<: *healthcheck_defaults
+      #  # MediaMTX exposes a metrics/health endpoint (if enabled) – here we test the RTSP port
+      #  test: ["CMD", "nc", "-z", "localhost", "8554"]
+    networks:
+      - mediamtx_network
+    tty: true
+    stdin_open: true
+
+  dashboard:
+    <<: [*restart_policy, *pull_policy]
+    image: thanthienhai/mtx-ui:latest
+      #build:
+      #  context: .
+      #  dockerfile: Dockerfile
+      #  args:
+      #    NEXT_PUBLIC_MEDIAMTX_API_URL: ${NEXT_PUBLIC_MEDIAMTX_API_URL}
+      #    NEXT_PUBLIC_MEDIAMTX_HLS_URL: ${NEXT_PUBLIC_MEDIAMTX_HLS_URL}
+    container_name: mediamtx-dashboard
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+        #depends_on:
+        #  publisher:
+        #    <<: *depends_on_healthy
+        #healthcheck:
+        #  <<: *healthcheck_defaults
+        #  # Next.js default health check (if you expose /api/health, adjust accordingly)
+        #  test: ["CMD", "curl", "-f", "http://localhost:3000"]
+    networks:
+      - mediamtx_network
+
+  nginx_mediamtx:
+    <<: [*restart_policy, *pull_policy]
+    image: nginx:alpine
+    container_name: nginx_mediamtx_proxy
+    ports:
+      - "80:80"
+      - "554:554"
+    volumes:
+      - ./nginx/nginx-dev.conf:/etc/nginx/nginx.conf
+      - ./nginx/proxy_params:/etc/nginx/proxy_params
+        #depends_on:
+        #  publisher:
+        #    <<: *depends_on_healthy
+        #  dashboard:
+        #    <<: *depends_on_healthy
+        #healthcheck:
+        #  <<: *healthcheck_defaults
+        #  test: ["CMD", "curl", "-f", "http://localhost"]
+    networks:
+      - mediamtx_network
+
+  swagger_mediamtx:
+    <<: [*restart_policy, *pull_policy]
+    image: swaggerapi/swagger-ui
+    container_name: mediamtx_swagger
+    ports:
+      - "8181:8080"
+    volumes:
+      - ./openapi.yaml:/spec/openapi.yaml
+    environment:
+      SWAGGER_JSON: /spec/openapi.yaml
+    # No hard dependency on publisher/dashboard – Swagger just serves the spec
+    #healthcheck:
+    #  <<: *healthcheck_defaults
+    #  test: ["CMD", "curl", "-f", "http://localhost:8080"]
+    networks:
+      - mediamtx_network
+
+networks:
+  mediamtx_network:
+    name: mediamtx_network

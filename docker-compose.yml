@@ -1,0 +1,144 @@
+version: '3.8'
+
+services:
+  prometheus_mediamtx:
+    image: prom/prometheus:latest
+    container_name: prometheus-mediamtx
+    restart: unless-stopped
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --web.console.templates=/etc/prometheus/consoles
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    networks:
+      - mediamtx_network
+
+  node-exporter_mediamtx:
+    image: prom/node-exporter:latest
+    container_name: node-exporter-mediamtx
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.rootfs=/rootfs
+      - --path.sysfs=/host/sys
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)'
+    ports:
+      - "9100:9100"
+    networks:
+      - mediamtx_network
+
+  grafana_mediamtx:
+    image: grafana/grafana:latest
+    container_name: grafana-mediamtx
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus_mediamtx
+    networks:
+      - mediamtx_network
+
+
+  publisher:
+    image: bluenviron/mediamtx:latest
+    container_name: mediamtx-publisher
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      - MTX_RTSPTRANSPORTS=tcp
+      - MTX_WEBRTCADDITIONALHOSTS="localhost"
+        #- MTX_PROTOCOLS_WEBRTC_ALLOWORIGIN=*
+    ports:
+      - "9998:9998"
+      - "9999:9999"
+      - "9997:9997"
+      - "8554:8554"
+      - "1935:1935"
+      - "8888:8888"
+      - "8889:8889"
+      - "8890:8890/udp"
+      - "8189:8189/udp"
+    tty: true
+    stdin_open: true
+    networks:
+      - mediamtx_network
+
+  dashboard:
+    image: thanthienhai/mtx-ui:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_MEDIAMTX_API_URL: ${NEXT_PUBLIC_MEDIAMTX_API_URL:-/api/mediamtx}
+        NEXT_PUBLIC_MEDIAMTX_HLS_URL: ${NEXT_PUBLIC_MEDIAMTX_HLS_URL:-http://localhost/hls}
+    container_name: mediamtx-dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - publisher
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://publisher:9997}
+      NEXT_PUBLIC_MEDIAMTX_API_URL: ${NEXT_PUBLIC_MEDIAMTX_API_URL:-/api/mediamtx}
+      NEXT_PUBLIC_MEDIAMTX_HLS_URL: ${NEXT_PUBLIC_MEDIAMTX_HLS_URL:-http://localhost/hls}
+    networks:
+      - mediamtx_network
+
+  nginx_mediamtx:
+    image: nginx:alpine
+    container_name: nginx_mediamtx_proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "554:554"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf  # Nginx config file
+      - ./nginx/proxy_params:/etc/nginx/proxy_params
+    depends_on:
+      - publisher
+      - dashboard
+      - grafana_mediamtx
+      - prometheus_mediamtx
+      - node-exporter_mediamtx
+    networks:
+      - mediamtx_network
+
+  swagger_mediamtx:
+    image: swaggerapi/swagger-ui
+    container_name: mediamtx_swagger
+    ports:
+      - "8181:8080"
+    volumes:
+      - ./openapi.yaml:/spec/openapi.yaml
+    environment:
+      - SWAGGER_JSON=/spec/openapi.yaml
+    networks:
+      - mediamtx_network
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  mediamtx_network:
+    name: mediamtx_network

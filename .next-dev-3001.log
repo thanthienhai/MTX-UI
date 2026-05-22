@@ -1,0 +1,11 @@
+
+> mediamtx-dashboard@0.1.0 dev
+> next dev -p 3001
+
+   ▲ Next.js 15.5.18
+   - Local:        http://localhost:3001
+   - Network:      http://100.102.192.98:3001
+   - Environments: .env.local, .env
+
+ ✓ Starting...
+ ✓ Ready in 4s
