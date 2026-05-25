@@ -2,7 +2,7 @@ import { AlertCircle, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
-export function LoadingState({ label = "Loading..." }: { label?: string }) {
+export function LoadingState({ label = "Đang tải..." }: { label?: string }) {
   return (
     <div className="flex min-h-32 flex-col items-center justify-center rounded-lg border border-dashed border-[#dee1e6] p-8 text-center">
       <Loader2 className="mb-3 h-7 w-7 animate-spin text-[#0052ff]" />
@@ -30,7 +30,7 @@ export function EmptyState({
 }
 
 export function ErrorState({
-  title = "Unable to load data",
+  title = "Không thể tải dữ liệu",
   message,
   onRetry,
 }: {
@@ -45,10 +45,9 @@ export function ErrorState({
       {message && <p className="mt-1 text-sm text-[#5b616e]">{message}</p>}
       {onRetry && (
         <Button className="mt-4" variant="outline" onClick={onRetry}>
-          Retry
+          Thử lại
         </Button>
       )}
     </div>
   )
 }
-

@@ -43,7 +43,7 @@ assert.deepEqual(
   { inboundBps: null, outboundBps: null, unavailableReason: "counter_reset" },
 )
 
-assert.equal(formatBitsPerSecond(null), "n/a")
+assert.equal(formatBitsPerSecond(null), "chưa có")
 assert.equal(formatBitsPerSecond(900), "900 bps")
 assert.equal(formatBitsPerSecond(1200), "1.20 Kbps")
 assert.equal(formatBitsPerSecond(1_200_000), "1.20 Mbps")
@@ -85,3 +85,8 @@ assert.equal(overview.streams.protocolSummary.rtmp, 2)
 assert.equal(overview.streams.protocolSummary.hls, 1)
 assert.equal(overview.streams.trafficTotals.bytesSent, 225)
 assert.equal(overview.health.apiLatencyMs, 42)
+
+const partialOverview = buildDashboardOverview({
+  protocolCounts: { rtspSessions: -1, rtmpConnections: 1 },
+})
+assert.equal(partialOverview.streams.protocolSummary.rtsp, null)

@@ -4,6 +4,7 @@ import fs from "node:fs"
 const auth = fs.readFileSync("lib/auth.ts", "utf8")
 const login = fs.readFileSync("app/login/page.tsx", "utf8")
 const dashboard = fs.readFileSync("app/page.tsx", "utf8")
+const authConfigurationView = fs.readFileSync("components/auth-configuration-view.tsx", "utf8")
 const protectedRoute = fs.readFileSync("components/protected-route.tsx", "utf8")
 
 for (const expected of [
@@ -41,12 +42,24 @@ assert.ok(protectedRoute.includes("isAuthenticated()"), "Protected route must us
 
 for (const expected of [
   "getSessionPermissions",
-  "Current Session Permissions",
   "permissions.publish",
   "permissions.read",
   'requireMediaMtxAction(permissions, "publish")',
   'requireMediaMtxAction(permissions, "read")',
-  "Read permission disabled",
+  "Quyền read đang bị tắt",
 ]) {
   assert.ok(dashboard.includes(expected), `Dashboard RBAC integration missing: ${expected}`)
+}
+
+for (const expected of [
+  "Cau hinh xac thuc",
+  "permissions[action]",
+  'requireMediaMtxAction(permissions, "api")',
+  "auth.config.patch",
+]) {
+  assert.ok(authConfigurationView.includes(expected), `Auth configuration RBAC integration missing: ${expected}`)
+}
+
+for (const expected of ["Kiểu xác thực", "Tên người dùng", "Mật khẩu", "Đăng nhập", "Token / JWT"]) {
+  assert.ok(login.includes(expected), `Login screen missing Vietnamese copy: ${expected}`)
 }

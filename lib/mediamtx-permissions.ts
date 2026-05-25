@@ -32,6 +32,6 @@ export function canPerformMediaMtxAction(permissions: MediaMtxPermissionSet, act
 
 export function requireMediaMtxAction(permissions: MediaMtxPermissionSet, action: MediaMtxAction) {
   if (!canPerformMediaMtxAction(permissions, action)) {
-    throw new Error(`Missing MediaMTX permission: ${action}`)
+    throw new Error(`Thiếu quyền MediaMTX: ${action}`)
   }
 }

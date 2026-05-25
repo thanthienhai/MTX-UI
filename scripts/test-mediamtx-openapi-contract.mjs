@@ -21,3 +21,63 @@ for (const [operationName, endpoint] of Object.entries(MEDIAMTX_CONTROL_API_ENDP
   )
 }
 
+for (const field of [
+  "authMethod",
+  "authInternalUsers",
+  "authHTTPAddress",
+  "authHTTPFingerprint",
+  "authHTTPExclude",
+  "authJWTJWKS",
+  "authJWTJWKSFingerprint",
+  "authJWTClaimKey",
+  "authJWTExclude",
+  "authJWTIssuer",
+  "authJWTAudience",
+]) {
+  assert.ok(openapi.includes(`${field}:`), `Missing auth GlobalConf field: ${field}`)
+}
+
+for (const field of [
+  "sourceFingerprint",
+  "sourceOnDemand",
+  "sourceOnDemandStartTimeout",
+  "sourceOnDemandCloseAfter",
+  "maxReaders",
+  "overridePublisher",
+  "useAbsoluteTimestamp",
+  "record",
+  "recordPath",
+  "recordFormat",
+  "recordSegmentDuration",
+  "recordDeleteAfter",
+]) {
+  assert.ok(openapi.includes(`${field}:`), `Missing PathConf field: ${field}`)
+}
+
+for (const sourceType of [
+  "hlsSource",
+  "redirect",
+  "rpiCameraSource",
+  "rtmpConn",
+  "rtmpSource",
+  "rtspSession",
+  "rtspSource",
+  "srtConn",
+  "srtSource",
+  "udpSource",
+  "webRTCSession",
+  "webRTCSource",
+]) {
+  assert.ok(openapi.includes(sourceType), `Missing PathSource enum value: ${sourceType}`)
+}
+
+for (const readerType of [
+  "hlsMuxer",
+  "rtmpConn",
+  "rtspSession",
+  "rtspsSession",
+  "srtConn",
+  "webRTCSession",
+]) {
+  assert.ok(openapi.includes(readerType), `Missing PathReader enum value: ${readerType}`)
+}

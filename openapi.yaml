@@ -79,6 +79,8 @@ components:
             $ref: '#/components/schemas/AuthInternalUser'
         authHTTPAddress:
           type: string
+        authHTTPFingerprint:
+          type: string
         authHTTPExclude:
           type: array
           items:
@@ -93,6 +95,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AuthInternalUserPermission'
+        authJWTIssuer:
+          type: string
+        authJWTAudience:
+          type: string
         authJWTInHTTPQuery:
           type: boolean
         api:
@@ -1049,6 +1055,40 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/GlobalConf'
+      responses:
+        '200':
+          description: the request was successful.
+        '400':
+          description: invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v3/auth/http/test:
+    post:
+      operationId: authHTTPTest
+      summary: Tests the configured HTTP authentication endpoint.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address:
+                  type: string
+                fingerprint:
+                  type: string
+                action:
+                  type: string
+                path:
+                  type: string
+                user:
+                  type: string
+                password:
+                  type: string
+                ip:
+                  type: string
       responses:
         '200':
           description: the request was successful.

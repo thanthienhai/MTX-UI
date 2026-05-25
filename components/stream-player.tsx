@@ -28,7 +28,7 @@ export function StreamPlayer({ pathName }: StreamPlayerProps) {
       video.src = hlsUrl
       video.addEventListener("loadedmetadata", () => setIsLoading(false))
       video.addEventListener("error", () => {
-        setError("Failed to load stream")
+        setError("Không thể tải stream")
         setIsLoading(false)
       })
     } else if (Hls.isSupported()) {
@@ -58,7 +58,7 @@ export function StreamPlayer({ pathName }: StreamPlayerProps) {
         }
       })
     } else {
-      setError("HLS is not supported in this browser")
+      setError("Trình duyệt này không hỗ trợ HLS")
       setIsLoading(false)
     }
 
@@ -76,7 +76,7 @@ export function StreamPlayer({ pathName }: StreamPlayerProps) {
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white mb-2"></div>
-            <p className="text-white text-sm">Loading stream...</p>
+            <p className="text-white text-sm">Đang tải stream...</p>
           </div>
         </div>
       )}
@@ -84,7 +84,7 @@ export function StreamPlayer({ pathName }: StreamPlayerProps) {
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
           <div className="text-center text-red-500">
             <p className="font-medium">{error}</p>
-            <p className="text-sm mt-2">Check that the stream is active and HLS is enabled</p>
+            <p className="text-sm mt-2">Kiểm tra stream đang hoạt động và HLS đã bật</p>
           </div>
         </div>
       )}

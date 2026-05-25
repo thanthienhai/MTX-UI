@@ -204,14 +204,14 @@ export function getSessionPermissions(session = getDashboardSession()) {
 
 function classifyLoginFailure(status: number): { code: LoginFailureCode; message: string } {
   if (status === 401) {
-    return { code: "invalid_credentials", message: "Invalid MediaMTX username/password or token." }
+    return { code: "invalid_credentials", message: "Tên đăng nhập, mật khẩu hoặc token MediaMTX không hợp lệ." }
   }
 
   if (status === 403) {
-    return { code: "missing_api_permission", message: "This user is authenticated but does not have MediaMTX api permission." }
+    return { code: "missing_api_permission", message: "Tài khoản đã xác thực nhưng chưa có quyền MediaMTX `api`." }
   }
 
-  return { code: "server_error", message: `MediaMTX rejected the login probe (${status}).` }
+  return { code: "server_error", message: `MediaMTX từ chối kiểm tra đăng nhập (${status}).` }
 }
 
 function resolvePermissionsFromGlobalConfig(globalConfig: unknown, username?: string): MediaMtxPermissionSet {
@@ -250,11 +250,11 @@ export async function validateMediaMtxLogin({
     credentialMode === "basic" ? createBasicAuthCredential(username || "", password || "") : (token || "").trim()
 
   if (!credential) {
-    throw new DashboardLoginError("invalid_credentials", "Enter MediaMTX credentials before signing in.")
+    throw new DashboardLoginError("invalid_credentials", "Nhập thông tin đăng nhập MediaMTX trước khi đăng nhập.")
   }
 
   if (credentialMode === "basic" && !username?.trim()) {
-    throw new DashboardLoginError("invalid_credentials", "Enter a MediaMTX username before signing in.")
+    throw new DashboardLoginError("invalid_credentials", "Nhập tên người dùng MediaMTX trước khi đăng nhập.")
   }
 
   let response: Response
@@ -269,7 +269,7 @@ export async function validateMediaMtxLogin({
   } catch (cause) {
     throw new DashboardLoginError(
       "connection",
-      "Failed to connect to MediaMTX or the dashboard proxy. Check the MediaMTX API URL and network.",
+      "Không thể kết nối MediaMTX hoặc proxy dashboard. Kiểm tra URL API MediaMTX và mạng.",
       undefined,
       cause,
     )
@@ -293,7 +293,7 @@ export async function validateMediaMtxLogin({
   if (permissions.api === false) {
     throw new DashboardLoginError(
       "missing_api_permission",
-      "This user is authenticated but does not have MediaMTX api permission.",
+      "Tài khoản đã xác thực nhưng chưa có quyền MediaMTX `api`.",
       response.status,
     )
   }

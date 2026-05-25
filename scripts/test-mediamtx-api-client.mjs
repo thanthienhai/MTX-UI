@@ -34,3 +34,23 @@ for (const [operationName, endpoint] of Object.entries(MEDIAMTX_CONTROL_API_ENDP
     assert.ok(source.includes(`method: "${endpoint.method}"`), `Client source missing ${endpoint.method} request option`)
   }
 }
+
+for (const expected of [
+  "authMethod?",
+  "authInternalUsers?",
+  "authHTTPAddress?",
+  "authHTTPFingerprint?",
+  "authHTTPExclude?",
+  "authJWTJWKS?",
+  "authJWTJWKSFingerprint?",
+  "authJWTClaimKey?",
+  "authJWTExclude?",
+  "authJWTIssuer?",
+  "authJWTAudience?",
+  "patchAuthConfiguration",
+  "testHttpAuthEndpoint",
+  "/v3/auth/http/test",
+  "/v3/auth/jwks/refresh",
+]) {
+  assert.ok(source.includes(expected), `Auth client support is missing: ${expected}`)
+}

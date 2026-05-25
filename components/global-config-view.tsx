@@ -13,7 +13,7 @@ import { LoadingState, ErrorState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
 import type { GlobalConf } from "@/lib/mediamtx-api"
-import type { MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
+import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 import type { DashboardAuditEvent } from "@/lib/dashboard-audit"
 
 interface GlobalConfigViewProps {
@@ -37,11 +37,11 @@ function computeDirtyFields<T extends Record<string, unknown>>(
 }
 
 function formatTimestamp(iso: string | null): string {
-  if (!iso) return "Never"
+  if (!iso) return "Chưa có"
   try {
     return new Date(iso).toLocaleTimeString()
   } catch {
-    return "Unknown"
+    return "Không rõ"
   }
 }
 
@@ -93,7 +93,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
     } catch (error) {
       const message = api.getMediaMtxErrorMessage(error)
       setLoadError(message)
-      notify({ type: "error", title: "Failed to load global config", message })
+      notify({ type: "error", title: "Không thể tải global config", message })
     } finally {
       setIsLoading(false)
     }
@@ -140,7 +140,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
     const keys = section === "general" ? generalKeys : hookKeys
     const dirty = computeDirtyFields(originalConfig, globalConfig, keys)
     if (Object.keys(dirty).length === 0) {
-      notify({ type: "info", title: "No changes to save" })
+      notify({ type: "info", title: "Không có thay đổi để lưu" })
       return
     }
 
@@ -150,6 +150,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
     setIsPreviewExpanded(false)
 
     try {
+      requireMediaMtxAction(permissions, "api")
       await api.patchGlobalConfig(dirty as Partial<GlobalConf>)
 
       // Update original to match current
@@ -157,8 +158,8 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
       setLastSyncedAt(new Date().toISOString())
       notify({
         type: "success",
-        title: `${section === "general" ? "General settings" : "Global hooks"} updated`,
-        message: "Configuration patched via hot-reload",
+        title: `Đã cập nhật ${section === "general" ? "cài đặt chung" : "global hooks"}`,
+        message: "Cấu hình đã được patch qua hot-reload",
       })
 
       appendAuditEvent?.({
@@ -184,12 +185,12 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
         }
         if (Object.keys(parsedErrors).length > 0) {
           setFieldErrors(parsedErrors)
-          notify({ type: "error", title: "Some fields have errors", message: "Check field-level error messages" })
+          notify({ type: "error", title: "Một số trường bị lỗi", message: "Kiểm tra lỗi ở từng trường" })
         } else {
-          notifyError(`Failed to update ${section}`, error)
+          notifyError(`Không thể cập nhật ${section}`, error)
         }
       } else {
-        notifyError(`Failed to update ${section}`, error)
+        notifyError(`Không thể cập nhật ${section}`, error)
       }
 
       appendAuditEvent?.({
@@ -298,7 +299,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
 
   // --- Loading / Error states ---
   if (isLoading && !globalConfig) {
-    return <LoadingState label="Loading global configuration..." />
+    return <LoadingState label="Đang tải global configuration..." />
   }
 
   if (loadError && !globalConfig) {
@@ -306,7 +307,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
   }
 
   if (!globalConfig) {
-    return <ErrorState message="No configuration data available" onRetry={fetchConfig} />
+    return <ErrorState message="Không có dữ liệu cấu hình" onRetry={fetchConfig} />
   }
 
   const generalDirtyCount = computeDirtyFields(originalConfig || {}, globalConfig, generalKeys)
@@ -317,17 +318,17 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
       {/* Header with last synced */}
       <div className="flex items-center justify-between">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Global Server Configuration</h2>
+          <h2 className="text-lg font-semibold">Cấu hình global của máy chủ</h2>
           <p className="text-sm text-muted-foreground">
-            Last synced: {formatTimestamp(lastSyncedAt)}
+            Đồng bộ lần cuối: {formatTimestamp(lastSyncedAt)}
             {Object.keys(generalDirtyCount).length + Object.keys(hooksDirtyCount).length > 0 && (
-              <span className="ml-2 text-amber-600">(unsaved changes)</span>
+              <span className="ml-2 text-amber-600">(có thay đổi chưa lưu)</span>
             )}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {!canUseApi && (
-            <p className="text-sm text-[#cf202f]">API permission required to edit</p>
+            <p className="text-sm text-[#cf202f]">Cần quyền api để chỉnh sửa</p>
           )}
           <Button
             variant="outline"
@@ -348,7 +349,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Eye className="h-4 w-4 text-[#0052ff]" />
-                <CardTitle className="text-sm font-medium">Payload Preview</CardTitle>
+                <CardTitle className="text-sm font-medium">Xem trước payload</CardTitle>
               </div>
               <Button
                 variant="ghost"
@@ -360,7 +361,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
               </Button>
             </div>
             <CardDescription>
-              Review the JSON payload that will be sent to PATCH /v3/config/global/patch
+              Kiểm tra JSON payload sẽ gửi tới PATCH /v3/config/global/patch
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -374,7 +375,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
                 disabled={isPatchInFlight}
               >
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                {isPatchInFlight ? "Applying..." : "Apply changes"}
+                {isPatchInFlight ? "Đang áp dụng..." : "Áp dụng thay đổi"}
               </Button>
               <Button
                 size="sm"
@@ -385,7 +386,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
                 }}
                 disabled={isPatchInFlight}
               >
-                Cancel
+                Hủy
               </Button>
             </div>
           </CardContent>
@@ -397,8 +398,8 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>General Settings</CardTitle>
-              <CardDescription>Server-wide logging and network configuration</CardDescription>
+              <CardTitle>Cài đặt chung</CardTitle>
+              <CardDescription>Cấu hình log và mạng toàn máy chủ</CardDescription>
             </div>
             {!pendingPatchPreview && (
               <Button
@@ -406,7 +407,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
                 disabled={!canUseApi || isPatchInFlight || Object.keys(generalDirtyCount).length === 0}
               >
                 <Eye className="mr-2 h-4 w-4" />
-                Preview & Save
+                Xem trước & lưu
               </Button>
             )}
           </div>
@@ -414,38 +415,38 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
         <CardContent>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div className="space-y-4">
-              {renderSelect("Log Level", "logLevel", [
+              {renderSelect("Mức log", "logLevel", [
                 { value: "error", label: "Error" },
                 { value: "warn", label: "Warning" },
                 { value: "info", label: "Info" },
                 { value: "debug", label: "Debug" },
               ])}
 
-              {renderSelect("Log Destinations", "logDestinations", [
+              {renderSelect("Nơi ghi log", "logDestinations", [
                 { value: "stdout", label: "stdout" },
                 { value: "file", label: "File" },
                 { value: "syslog", label: "Syslog" },
                 { value: "stdout,file", label: "stdout + File" },
                 { value: "stdout,syslog", label: "stdout + Syslog" },
                 { value: "file,syslog", label: "File + Syslog" },
-                { value: "stdout,file,syslog", label: "All destinations" },
+                { value: "stdout,file,syslog", label: "Tất cả nơi ghi" },
               ])}
 
-              {renderSwitch("Structured Logging", "Output logs as structured JSON", "logStructured")}
+              {renderSwitch("Log có cấu trúc", "Xuất log dạng JSON có cấu trúc", "logStructured")}
 
-              {renderTextInput("Log File Path", "logFile", "/var/log/mediamtx.log")}
+              {renderTextInput("Đường dẫn file log", "logFile", "/var/log/mediamtx.log")}
 
               {renderTextInput("Syslog Prefix", "sysLogPrefix", "mediamtx")}
             </div>
 
             <div className="space-y-4">
-              {renderSwitch("Dump Packets", "Log raw packet dumps", "dumpPackets")}
+              {renderSwitch("Dump packet", "Ghi raw packet dump vào log", "dumpPackets")}
 
-              {renderTextInput("Read Timeout", "readTimeout", "10s")}
+              {renderTextInput("Timeout đọc", "readTimeout", "10s")}
 
-              {renderTextInput("Write Timeout", "writeTimeout", "10s")}
+              {renderTextInput("Timeout ghi", "writeTimeout", "10s")}
 
-              {renderNumberInput("Write Queue Size", "writeQueueSize", "512")}
+              {renderNumberInput("Kích thước hàng đợi ghi", "writeQueueSize", "512")}
 
               {renderNumberInput("UDP Max Payload Size", "udpMaxPayloadSize", "1472")}
 
@@ -462,8 +463,8 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Global Hooks</CardTitle>
-              <CardDescription>Commands triggered by connection lifecycle events</CardDescription>
+              <CardTitle>Global hooks</CardTitle>
+              <CardDescription>Lệnh chạy theo vòng đời connection</CardDescription>
             </div>
             {!pendingPatchPreview && (
               <Button
@@ -471,7 +472,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
                 disabled={!canUseApi || isPatchInFlight || Object.keys(hooksDirtyCount).length === 0}
               >
                 <Eye className="mr-2 h-4 w-4" />
-                Preview & Save
+                Xem trước & lưu
               </Button>
             )}
           </div>
@@ -479,17 +480,17 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
         <CardContent>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div className="space-y-4">
-              {renderTextInput("On Connect", "runOnConnect", "/path/to/connect-hook.sh")}
+              {renderTextInput("Khi connect", "runOnConnect", "/path/to/connect-hook.sh")}
 
               {renderSwitch(
-                "On Connect Restart",
-                "Restart the connect hook command when it exits",
+                "Restart khi connect",
+                "Khởi động lại lệnh connect hook khi lệnh thoát",
                 "runOnConnectRestart",
               )}
             </div>
 
             <div className="space-y-4">
-              {renderTextInput("On Disconnect", "runOnDisconnect", "/path/to/disconnect-hook.sh")}
+              {renderTextInput("Khi disconnect", "runOnDisconnect", "/path/to/disconnect-hook.sh")}
             </div>
           </div>
         </CardContent>
@@ -499,7 +500,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
       {lastSyncedAt && !isPatchInFlight && !pendingPatchPreview && (
         <p className="text-xs text-muted-foreground text-right">
           <CheckCircle2 className="mr-1 inline h-3 w-3 text-[#05b169]" />
-          Configuration synced at {formatTimestamp(lastSyncedAt)}
+          Cấu hình đã đồng bộ lúc {formatTimestamp(lastSyncedAt)}
         </p>
       )}
     </div>

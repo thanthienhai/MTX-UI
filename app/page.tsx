@@ -56,11 +56,20 @@ import {
   buildMediaMtxMetricsUrl,
   buildMediaMtxPlaybackUrl,
   buildMediaMtxPprofUrl,
+  clearMediaMtxServiceUrls,
+  getStoredMediaMtxServiceUrls,
   normalizeMediaMtxApiBaseUrl,
   normalizeMediaMtxHlsBaseUrl,
+  normalizeMediaMtxMetricsBaseUrl,
+  normalizeMediaMtxPlaybackBaseUrl,
+  normalizeMediaMtxPprofBaseUrl,
+  saveMediaMtxServiceUrls,
+  validateMediaMtxServiceUrls,
 } from "@/lib/mediamtx-url.mjs"
 import { useRefreshPolling } from "@/hooks/use-refresh-polling"
 import { GlobalConfigView } from "@/components/global-config-view"
+import { ProtocolServerManagement } from "@/components/protocol-server-management"
+import { AuthConfigurationView } from "@/components/auth-configuration-view"
 import type { GlobalConf, HLSMuxer, PathConfig, Path as LivePath, Recording } from "@/lib/mediamtx-api"
 import {
   buildDashboardOverview,
@@ -89,6 +98,18 @@ function MediaMTXDashboard() {
     metrics: false,
     metricsAddress: ":9998",
   })
+  const defaultServiceUrls = useMemo(
+    () => ({
+      controlApi: normalizeMediaMtxApiBaseUrl(""),
+      hls: normalizeMediaMtxHlsBaseUrl(""),
+      playback: normalizeMediaMtxPlaybackBaseUrl(""),
+      metrics: normalizeMediaMtxMetricsBaseUrl(""),
+      pprof: normalizeMediaMtxPprofBaseUrl(""),
+    }),
+    [],
+  )
+  const [serviceUrlDraft, setServiceUrlDraft] = useState(defaultServiceUrls)
+  const [serviceUrlErrors, setServiceUrlErrors] = useState<Record<string, string>>({})
 
   const [paths, setPaths] = useState<PathConfig[]>([])
   const [livePaths, setLivePaths] = useState<LivePath[]>([])
@@ -144,7 +165,8 @@ function MediaMTXDashboard() {
     const events = loadAuditEvents()
     setAuditEvents(events)
     setPermissions(getSessionPermissions(getDashboardSession()))
-  }, [])
+    setServiceUrlDraft({ ...defaultServiceUrls, ...getStoredMediaMtxServiceUrls() })
+  }, [defaultServiceUrls])
 
   const appendAuditEvent = useCallback((event: Omit<DashboardAuditEvent, "id" | "timestamp">) => {
     setAuditEvents((current) => {
@@ -166,22 +188,46 @@ function MediaMTXDashboard() {
     setDashboardError(null)
     const startedAt = performance.now()
     try {
-      const [configs, live, global, defaults, muxers, recordingList, ...protocolLists] = await Promise.all([
+      const [configsResult, liveResult, globalResult, defaultsResult, muxersResult, recordingResult] =
+        await Promise.allSettled([
         api.getPathConfigs(),
         api.getPaths(),
         api.getGlobalConfig(),
         api.getPathDefaults(),
         api.getHlsMuxers(),
         api.getRecordings(),
+      ])
+      const getValue = <T,>(result: PromiseSettledResult<T>, fallback: T) =>
+        result.status === "fulfilled" ? result.value : fallback
+      const configs = getValue(configsResult, [])
+      const live = getValue(liveResult, [])
+      const global = getValue(globalResult, null)
+      const defaults = getValue(defaultsResult, null)
+      const muxers = getValue(muxersResult, [])
+      const recordingList = getValue(recordingResult, [])
+      const rtspTlsEnabled = global?.rtsp === true && global.rtspEncryption !== "no"
+      const rtmpTlsEnabled = global?.rtmp === true && global.rtmpEncryption !== "no"
+      const protocolResults = await Promise.allSettled([
         api.rtspConnections.list(),
         api.rtspSessions.list(),
-        api.rtspsConnections.list(),
-        api.rtspsSessions.list(),
+        rtspTlsEnabled ? api.rtspsConnections.list() : Promise.resolve([]),
+        rtspTlsEnabled ? api.rtspsSessions.list() : Promise.resolve([]),
         api.rtmpConnections.list(),
-        api.rtmpsConnections.list(),
+        rtmpTlsEnabled ? api.rtmpsConnections.list() : Promise.resolve([]),
         api.srtConnections.list(),
         api.webrtcSessions.list(),
       ])
+      const firstFailure = [
+        configsResult,
+        liveResult,
+        globalResult,
+        defaultsResult,
+        muxersResult,
+        recordingResult,
+        ...protocolResults,
+      ].find((result) => result.status === "rejected") as PromiseRejectedResult | undefined
+      const protocolLists = protocolResults.map((result) => getValue(result, null))
+
       setPaths(configs.filter((p) => p.name !== "all_others"))
       setLivePaths(live)
       setGlobalConfig(global)
@@ -191,22 +237,23 @@ function MediaMTXDashboard() {
       setApiLatencyMs(Math.round(performance.now() - startedAt))
       setLastConfigUpdateAt(new Date().toISOString())
       setProtocolCounts({
-        rtspConnections: protocolLists[0]?.length || 0,
-        rtspSessions: protocolLists[1]?.length || 0,
-        rtspsConnections: protocolLists[2]?.length || 0,
-        rtspsSessions: protocolLists[3]?.length || 0,
-        rtmpConnections: protocolLists[4]?.length || 0,
-        rtmpsConnections: protocolLists[5]?.length || 0,
-        srtConnections: protocolLists[6]?.length || 0,
-        webrtcSessions: protocolLists[7]?.length || 0,
+        rtspConnections: protocolLists[0]?.length ?? -1,
+        rtspSessions: protocolLists[1]?.length ?? -1,
+        rtspsConnections: protocolLists[2]?.length ?? -1,
+        rtspsSessions: protocolLists[3]?.length ?? -1,
+        rtmpConnections: protocolLists[4]?.length ?? -1,
+        rtmpsConnections: protocolLists[5]?.length ?? -1,
+        hlsMuxers: muxersResult.status === "fulfilled" ? muxers.length : -1,
+        srtConnections: protocolLists[6]?.length ?? -1,
+        webrtcSessions: protocolLists[7]?.length ?? -1,
       })
-      const trafficTotals = getTrafficTotals(live, muxers, protocolLists)
+      const trafficTotals = getTrafficTotals(live, muxers, protocolLists.filter(Boolean))
       const currentSample = { timestamp: Date.now(), ...trafficTotals }
       const nextBitrate = calculateBitrate(previousTrafficSampleRef.current, currentSample)
       setBitrate({ inboundBps: nextBitrate.inboundBps, outboundBps: nextBitrate.outboundBps })
       previousTrafficSampleRef.current = currentSample
 
-      if (permissions.metrics === false || global.metrics === false) {
+      if (permissions.metrics === false || global?.metrics === false) {
         setMetricsStatus({ status: "disabled", checkedAt: new Date().toISOString() })
       } else {
         const metricsStartedAt = performance.now()
@@ -216,21 +263,26 @@ function MediaMTXDashboard() {
             status: response.ok ? "healthy" : "degraded",
             latencyMs: Math.round(performance.now() - metricsStartedAt),
             checkedAt: new Date().toISOString(),
-            message: response.ok ? undefined : `Metrics returned ${response.status}`,
+            message: response.ok ? undefined : `Metrics trả về ${response.status}`,
           })
         } catch (error) {
           setMetricsStatus({
             status: "degraded",
             checkedAt: new Date().toISOString(),
-            message: error instanceof Error ? error.message : "Metrics scrape failed",
+            message: error instanceof Error ? error.message : "Không thể scrape metrics",
           })
         }
+      }
+      if (firstFailure) {
+        const message = api.getMediaMtxErrorMessage(firstFailure.reason)
+        setDashboardError(`Một số dữ liệu MediaMTX chưa tải được: ${message}`)
+        notify({ type: "error", title: "Dữ liệu MediaMTX chưa đầy đủ", message })
       }
     } catch (error) {
       console.error("Error fetching paths:", error)
       const message = api.getMediaMtxErrorMessage(error)
       setDashboardError(message)
-      notify({ type: "error", title: "Failed to load MediaMTX data", message })
+      notify({ type: "error", title: "Không thể tải dữ liệu MediaMTX", message })
     } finally {
       setIsLoadingPaths(false)
     }
@@ -261,7 +313,7 @@ function MediaMTXDashboard() {
       await fetchPaths()
       setIsEditDialogOpen(false)
       setEditingPath(null)
-      notify({ type: "success", title: "Path updated", message: editingPath.name })
+      notify({ type: "success", title: "Đã cập nhật path", message: editingPath.name })
       appendAuditEvent({
         actor: username,
         action: "path.update",
@@ -271,7 +323,7 @@ function MediaMTXDashboard() {
       })
     } catch (error) {
       console.error("Error updating path:", error)
-      notifyError("Failed to update path", error)
+      notifyError("Không thể cập nhật path", error)
       appendAuditEvent({
         actor: username,
         action: "path.update",
@@ -295,7 +347,7 @@ function MediaMTXDashboard() {
       await fetchPaths()
       setIsDeleteDialogOpen(false)
       setPathToDelete(null)
-      notify({ type: "success", title: "Path deleted", message: pathToDelete })
+      notify({ type: "success", title: "Đã xóa path", message: pathToDelete })
       appendAuditEvent({
         actor: username,
         action: "path.delete",
@@ -304,7 +356,7 @@ function MediaMTXDashboard() {
       })
     } catch (error) {
       console.error("Error deleting path:", error)
-      notifyError("Failed to delete path", error)
+      notifyError("Không thể xóa path", error)
       appendAuditEvent({
         actor: username,
         action: "path.delete",
@@ -338,14 +390,41 @@ function MediaMTXDashboard() {
     router.push("/login")
   }
 
+  const handleSaveServiceUrls = () => {
+    const errors = validateMediaMtxServiceUrls(serviceUrlDraft) as Record<string, string>
+    setServiceUrlErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      notify({ type: "error", title: "URL dịch vụ chưa hợp lệ", message: "Kiểm tra các trường được đánh dấu." })
+      return
+    }
+
+    saveMediaMtxServiceUrls(serviceUrlDraft)
+    notify({ type: "success", title: "Đã lưu URL dịch vụ", message: "Các link và request phía trình duyệt sẽ dùng cấu hình mới." })
+    appendAuditEvent({
+      actor: username,
+      action: "service-urls.update",
+      target: "browser-service-urls",
+      payloadSummary: JSON.stringify(serviceUrlDraft),
+      result: "success",
+    })
+    fetchPaths().catch(() => undefined)
+  }
+
+  const handleResetServiceUrls = () => {
+    clearMediaMtxServiceUrls()
+    setServiceUrlDraft(defaultServiceUrls)
+    setServiceUrlErrors({})
+    notify({ type: "info", title: "Đã đặt lại URL dịch vụ", message: "Dashboard sẽ dùng giá trị mặc định hoặc biến môi trường." })
+  }
+
   const handleAddPath = async () => {
     if (!newPath.name) {
-      notify({ type: "error", title: "Path name is required" })
+      notify({ type: "error", title: "Cần nhập tên path" })
       return
     }
 
     if (!newPath.source) {
-      notify({ type: "error", title: "Source URL is required" })
+      notify({ type: "error", title: "Cần nhập URL nguồn" })
       return
     }
 
@@ -373,7 +452,7 @@ function MediaMTXDashboard() {
         overridePublisher: true,
       })
       setIsAddPathDialogOpen(false)
-      notify({ type: "success", title: "Path added", message: newPath.name })
+      notify({ type: "success", title: "Đã thêm path", message: newPath.name })
       appendAuditEvent({
         actor: username,
         action: "path.add",
@@ -383,7 +462,7 @@ function MediaMTXDashboard() {
       })
     } catch (error) {
       console.error("Error adding path:", error)
-      notifyError("Failed to add path", error)
+      notifyError("Không thể thêm path", error)
       appendAuditEvent({
         actor: username,
         action: "path.add",
@@ -401,10 +480,10 @@ function MediaMTXDashboard() {
     try {
       requireMediaMtxAction(permissions, "api")
       await api.refreshJwks()
-      notify({ type: "success", title: "JWKS refreshed" })
+      notify({ type: "success", title: "Đã refresh JWKS" })
       appendAuditEvent({ actor: username, action: "auth.jwks.refresh", target: "jwks", result: "success" })
     } catch (error) {
-      notifyError("Failed to refresh JWKS", error)
+      notifyError("Không thể refresh JWKS", error)
       appendAuditEvent({
         actor: username,
         action: "auth.jwks.refresh",
@@ -421,7 +500,7 @@ function MediaMTXDashboard() {
       requireMediaMtxAction(permissions, "read")
       await api.deleteRecordingSegment({ path, start })
       await fetchPaths()
-      notify({ type: "success", title: "Recording segment deleted", message: path })
+      notify({ type: "success", title: "Đã xóa segment ghi hình", message: path })
       appendAuditEvent({
         actor: username,
         action: "recording.segment.delete",
@@ -430,7 +509,7 @@ function MediaMTXDashboard() {
         result: "success",
       })
     } catch (error) {
-      notifyError("Failed to delete recording segment", error)
+      notifyError("Không thể xóa segment ghi hình", error)
       appendAuditEvent({
         actor: username,
         action: "recording.segment.delete",
@@ -485,31 +564,35 @@ function MediaMTXDashboard() {
   const pollingSeconds = Math.round(pollingIntervalMs / 1000)
 
   const formatMegabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(2)} MB`
-  const formatStatus = (status: string) => status.charAt(0).toUpperCase() + status.slice(1)
+  const formatStatus = (status: string) =>
+    ({ enabled: "Bật", disabled: "Tắt", unknown: "Không rõ", healthy: "Tốt", degraded: "Suy giảm" })[
+      status as "enabled" | "disabled" | "unknown" | "healthy" | "degraded"
+    ] || status
+  const formatProtocolCount = (count: number | null) => (count === null ? "Không rõ" : count)
 
   const metricCards = [
     {
-      title: "Active Streams",
+      title: "Stream đang chạy",
       value: activeStreamsCount,
-      description: `${activeStreamsCount} live, ${idleStreamsCount} idle`,
+      description: `${activeStreamsCount} live, ${idleStreamsCount} đang chờ`,
       icon: Video,
     },
     {
-      title: "Total Viewers",
+      title: "Tổng người xem",
       value: totalViewers,
-      description: "Across all streams",
+      description: "Trên tất cả stream",
       icon: Users,
     },
     {
-      title: "Configured Paths",
+      title: "Path đã cấu hình",
       value: paths.length,
-      description: "Ready for RTSP, RTMP, HLS",
+      description: "Sẵn sàng cho RTSP, RTMP, HLS",
       icon: Globe,
     },
     {
-      title: "Server Status",
-      value: dashboardError ? "Error" : "Online",
-      description: isPollingEnabled ? `Polling every ${pollingSeconds} seconds` : "Polling paused",
+      title: "Trạng thái máy chủ",
+      value: dashboardError ? "Lỗi" : "Online",
+      description: isPollingEnabled ? `Tự refresh mỗi ${pollingSeconds} giây` : "Đang tạm dừng polling",
       icon: Activity,
       valueClassName: dashboardError ? "text-[#cf202f]" : "text-[#05b169]",
     },
@@ -537,26 +620,26 @@ function MediaMTXDashboard() {
 
   const healthCards = [
     {
-      title: "API latency",
-      value: overview.health.apiLatencyMs === null ? "n/a" : `${overview.health.apiLatencyMs} ms`,
-      description: dashboardError ? "Control API degraded" : "Latest overview refresh",
+      title: "Độ trễ API",
+      value: overview.health.apiLatencyMs === null ? "chưa có" : `${overview.health.apiLatencyMs} ms`,
+      description: dashboardError ? "Control API suy giảm" : "Lần refresh overview mới nhất",
     },
     {
-      title: "Metrics scrape",
+      title: "Scrape metrics",
       value: formatStatus(overview.health.metricsStatus.status),
-      description: overview.health.metricsStatus.message || overview.health.metricsStatus.checkedAt || "Not checked",
+      description: overview.health.metricsStatus.message || overview.health.metricsStatus.checkedAt || "Chưa kiểm tra",
     },
     {
-      title: "Last config update",
+      title: "Cập nhật config cuối",
       value: overview.health.lastConfigUpdateAt
         ? new Date(overview.health.lastConfigUpdateAt).toLocaleTimeString()
-        : "n/a",
-      description: "Latest backend config snapshot",
+        : "chưa có",
+      description: "Snapshot config backend mới nhất",
     },
     {
-      title: "Config sync",
-      value: overview.health.configMismatch ? "Warning" : "Synced",
-      description: overview.health.configMismatch ? "UI values differ from backend" : "UI and backend match",
+      title: "Đồng bộ config",
+      value: overview.health.configMismatch ? "Cảnh báo" : "Đã đồng bộ",
+      description: overview.health.configMismatch ? "Giá trị UI khác backend" : "UI và backend khớp",
     },
   ]
 
@@ -678,7 +761,7 @@ function MediaMTXDashboard() {
                 onClick={() => setIsHeroSummaryHidden((hidden) => !hidden)}
               >
                 {isHeroSummaryHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                {isHeroSummaryHidden ? "Show summary" : "Hide summary"}
+                {isHeroSummaryHidden ? "Hiện tóm tắt" : "Ẩn tóm tắt"}
               </Button>
               <Button
                 size="sm"
@@ -687,7 +770,7 @@ function MediaMTXDashboard() {
                 onClick={handleLogout}
               >
                 <LogOut className="h-4 w-4" />
-                Logout
+                Đăng xuất
               </Button>
             </div>
           </div>
@@ -719,7 +802,7 @@ function MediaMTXDashboard() {
                     disabled={!canUseApi || !canPublish}
                   >
                     <Plus className="h-4 w-4" />
-                    Add Path
+                    Thêm path
                   </Button>
                   <Button
                     variant="secondary"
@@ -735,17 +818,17 @@ function MediaMTXDashboard() {
               <div className="rounded-3xl bg-[#16181c] p-5 shadow-2xl shadow-black/30">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-[#a8acb3]">Traffic summary</p>
+                    <p className="text-sm text-[#a8acb3]">Tóm tắt lưu lượng</p>
                     <p className="mt-1 font-mono text-2xl font-medium text-white">{formatMegabytes(totalBytesSent)}</p>
                   </div>
                   <Badge className="rounded-full bg-[#0052ff] text-white hover:bg-[#0052ff]">
-                    {isPollingEnabled ? `${pollingSeconds}s refresh` : "manual refresh"}
+                    {isPollingEnabled ? `refresh ${pollingSeconds}s` : "refresh thủ công"}
                   </Badge>
                 </div>
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="flex items-center justify-between text-sm text-[#a8acb3]">
-                      <span>Live streams</span>
+                      <span>Stream live</span>
                       <span className="font-mono text-white">{activeStreamsCount}/{paths.length}</span>
                     </div>
                     <div className="mt-3 h-2 rounded-full bg-white/10">
@@ -757,11 +840,11 @@ function MediaMTXDashboard() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <p className="text-xs text-[#a8acb3]">Received</p>
+                      <p className="text-xs text-[#a8acb3]">Đã nhận</p>
                       <p className="mt-2 font-mono text-lg text-white">{formatMegabytes(totalBytesReceived)}</p>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <p className="text-xs text-[#a8acb3]">Viewers</p>
+                      <p className="text-xs text-[#a8acb3]">Người xem</p>
                       <p className="mt-2 font-mono text-lg text-white">{totalViewers}</p>
                     </div>
                   </div>
@@ -774,14 +857,14 @@ function MediaMTXDashboard() {
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Tabs defaultValue="overview" className="space-y-8">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-4 lg:grid-cols-7">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-4 lg:grid-cols-8">
             <TabsTrigger value="overview" className="rounded-full py-2 data-[state=active]:bg-white">
               <Monitor className="w-4 h-4" />
-              <span>Overview</span>
+              <span>Tổng quan</span>
             </TabsTrigger>
             <TabsTrigger value="server" className="rounded-full py-2 data-[state=active]:bg-white">
               <Server className="w-4 h-4" />
-              <span>Server</span>
+              <span>Máy chủ</span>
             </TabsTrigger>
             <TabsTrigger value="paths" className="rounded-full py-2 data-[state=active]:bg-white">
               <Video className="w-4 h-4" />
@@ -789,19 +872,23 @@ function MediaMTXDashboard() {
             </TabsTrigger>
             <TabsTrigger value="config" className="rounded-full py-2 data-[state=active]:bg-white">
               <Settings className="w-4 h-4" />
-              <span>Configuration</span>
+              <span>Cấu hình</span>
+            </TabsTrigger>
+            <TabsTrigger value="protocols" className="rounded-full py-2 data-[state=active]:bg-white">
+              <Radio className="w-4 h-4" />
+              <span>Protocols</span>
             </TabsTrigger>
             <TabsTrigger value="auth" className="rounded-full py-2 data-[state=active]:bg-white">
               <Shield className="w-4 h-4" />
-              <span>Auth</span>
+              <span>Xác thực</span>
             </TabsTrigger>
             <TabsTrigger value="recording" className="rounded-full py-2 data-[state=active]:bg-white">
               <Play className="w-4 h-4" />
-              <span>Recording</span>
+              <span>Ghi hình</span>
             </TabsTrigger>
             <TabsTrigger value="monitoring" className="rounded-full py-2 data-[state=active]:bg-white">
               <Activity className="w-4 h-4" />
-              <span>Monitoring</span>
+              <span>Giám sát</span>
             </TabsTrigger>
           </TabsList>
 
@@ -830,12 +917,12 @@ function MediaMTXDashboard() {
 
             <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader>
-                <CardTitle>Server Service Status</CardTitle>
-                <CardDescription>Live capability status from MediaMTX config, service URLs, and permissions</CardDescription>
+                <CardTitle>Trạng thái dịch vụ máy chủ</CardTitle>
+                <CardDescription>Trạng thái thực từ config MediaMTX, URL dịch vụ và quyền hiện tại</CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingPaths ? (
-                  <LoadingState label="Loading service status..." />
+                  <LoadingState label="Đang tải trạng thái dịch vụ..." />
                 ) : dashboardError ? (
                   <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
                 ) : (
@@ -859,26 +946,26 @@ function MediaMTXDashboard() {
             <div className="grid gap-4 lg:grid-cols-2">
               <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
                 <CardHeader>
-                  <CardTitle>Stream Summary</CardTitle>
-                  <CardDescription>Path, protocol, byte, and bitrate totals from runtime data</CardDescription>
+                  <CardTitle>Tổng quan stream</CardTitle>
+                  <CardDescription>Path, protocol, byte và bitrate từ dữ liệu runtime</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Configured paths</p>
+                      <p className="text-xs text-muted-foreground">Path đã cấu hình</p>
                       <p className="font-mono text-2xl">{overview.streams.configuredPaths}</p>
                     </div>
                     <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Ready/live paths</p>
+                      <p className="text-xs text-muted-foreground">Path ready/live</p>
                       <p className="font-mono text-2xl">{overview.streams.readyPaths}</p>
                     </div>
                     <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Inbound total</p>
+                      <p className="text-xs text-muted-foreground">Tổng inbound</p>
                       <p className="font-mono text-lg">{formatMegabytes(totalBytesReceived)}</p>
                       <p className="text-xs text-muted-foreground">{formatBitsPerSecond(overview.streams.bitrate.inboundBps)}</p>
                     </div>
                     <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Outbound total</p>
+                      <p className="text-xs text-muted-foreground">Tổng outbound</p>
                       <p className="font-mono text-lg">{formatMegabytes(totalBytesSent)}</p>
                       <p className="text-xs text-muted-foreground">{formatBitsPerSecond(overview.streams.bitrate.outboundBps)}</p>
                     </div>
@@ -886,7 +973,7 @@ function MediaMTXDashboard() {
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                     {protocolReaderCards.map(([name, count]) => (
                       <div key={name} className="rounded-lg border p-2 text-center">
-                        <p className="font-mono text-xl">{count}</p>
+                        <p className="font-mono text-xl">{formatProtocolCount(count)}</p>
                         <p className="text-xs text-muted-foreground">{name}</p>
                       </div>
                     ))}
@@ -896,8 +983,8 @@ function MediaMTXDashboard() {
 
               <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
                 <CardHeader>
-                  <CardTitle>Health</CardTitle>
-                  <CardDescription>Operational checks that do not block unrelated dashboard data</CardDescription>
+                  <CardTitle>Sức khỏe hệ thống</CardTitle>
+                  <CardDescription>Kiểm tra vận hành độc lập, không chặn dữ liệu dashboard khác</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3 sm:grid-cols-2">
                   {healthCards.map((card) => (
@@ -913,13 +1000,13 @@ function MediaMTXDashboard() {
 
             <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-                <CardDescription>Permission-aware shortcuts for common dashboard operations</CardDescription>
+                <CardTitle>Thao tác nhanh</CardTitle>
+                <CardDescription>Lối tắt theo quyền cho các thao tác dashboard thường dùng</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-3">
                   <Button onClick={() => setIsAddPathDialogOpen(true)} disabled={!canUseApi || !canPublish}>
                   <Plus className="h-4 w-4" />
-                  Add path
+                  Thêm path
                 </Button>
                 <Button
                   variant="outline"
@@ -927,7 +1014,7 @@ function MediaMTXDashboard() {
                   onClick={() => window.open(buildMediaMtxPlaybackUrl(selectedStreamPath || "stream"), "_blank", "noreferrer")}
                 >
                   <Play className="h-4 w-4" />
-                  Open playback
+                  Mở playback
                 </Button>
                 <Button
                   variant="outline"
@@ -935,34 +1022,34 @@ function MediaMTXDashboard() {
                   onClick={() => window.open(buildMediaMtxMetricsUrl(), "_blank", "noreferrer")}
                 >
                   <Activity className="h-4 w-4" />
-                  Open metrics
+                  Mở metrics
                 </Button>
                 <Button variant="secondary" onClick={() => polling.refresh().catch(() => undefined)}>
                   <RefreshCw className="h-4 w-4" />
-                  Refresh data
+                  Refresh dữ liệu
                 </Button>
               </CardContent>
             </Card>
 
             <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader>
-                <CardTitle>Active Streams</CardTitle>
-                <CardDescription>Currently active streaming paths and their status</CardDescription>
+                <CardTitle>Stream đang hoạt động</CardTitle>
+                <CardDescription>Các path streaming hiện có và trạng thái của chúng</CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingPaths ? (
-                  <LoadingState label="Loading streams..." />
+                  <LoadingState label="Đang tải stream..." />
                 ) : dashboardError ? (
                   <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
                 ) : !canRead ? (
-                  <EmptyState title="Read permission disabled" />
+                  <EmptyState title="Quyền read đang bị tắt" />
                 ) : paths.length === 0 ? (
                   <EmptyState
                     icon={<VideoIcon className="h-12 w-12 opacity-50" />}
-                    title="No paths configured"
+                    title="Chưa cấu hình path nào"
                     action={
                       canUseApi && canPublish ? (
-                        <Button onClick={() => setIsAddPathDialogOpen(true)}>Add Your First Path</Button>
+                        <Button onClick={() => setIsAddPathDialogOpen(true)}>Thêm path đầu tiên</Button>
                       ) : null
                     }
                   />
@@ -979,12 +1066,12 @@ function MediaMTXDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>General Settings</CardTitle>
-                  <CardDescription>Basic server configuration</CardDescription>
+                  <CardTitle>Cài đặt chung</CardTitle>
+                  <CardDescription>Cấu hình cơ bản của máy chủ</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="logLevel">Log Level</Label>
+                    <Label htmlFor="logLevel">Mức log</Label>
                     <Select
                       value={config.logLevel}
                       onValueChange={(value) => setConfig({ ...config, logLevel: value })}
@@ -1001,11 +1088,11 @@ function MediaMTXDashboard() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="readTimeout">Read Timeout</Label>
+                    <Label htmlFor="readTimeout">Timeout đọc</Label>
                     <Input id="readTimeout" defaultValue="10s" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="writeTimeout">Write Timeout</Label>
+                    <Label htmlFor="writeTimeout">Timeout ghi</Label>
                     <Input id="writeTimeout" defaultValue="10s" />
                   </div>
                 </CardContent>
@@ -1013,13 +1100,13 @@ function MediaMTXDashboard() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Protocol Settings</CardTitle>
-                  <CardDescription>Enable/disable streaming protocols</CardDescription>
+                  <CardTitle>Cài đặt protocol</CardTitle>
+                  <CardDescription>Bật/tắt các protocol streaming</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>RTSP Server</Label>
+                      <Label>Máy chủ RTSP</Label>
                       <p className="text-sm text-muted-foreground">Real Time Streaming Protocol</p>
                     </div>
                     <Switch
@@ -1029,7 +1116,7 @@ function MediaMTXDashboard() {
                   </div>
                   {config.rtsp && (
                     <div className="space-y-2 ml-4">
-                      <Label htmlFor="rtspAddress">RTSP Address</Label>
+                      <Label htmlFor="rtspAddress">Địa chỉ RTSP</Label>
                       <Input
                         id="rtspAddress"
                         value={config.rtspAddress}
@@ -1042,7 +1129,7 @@ function MediaMTXDashboard() {
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>RTMP Server</Label>
+                      <Label>Máy chủ RTMP</Label>
                       <p className="text-sm text-muted-foreground">Real Time Messaging Protocol</p>
                     </div>
                     <Switch
@@ -1052,7 +1139,7 @@ function MediaMTXDashboard() {
                   </div>
                   {config.rtmp && (
                     <div className="space-y-2 ml-4">
-                      <Label htmlFor="rtmpAddress">RTMP Address</Label>
+                      <Label htmlFor="rtmpAddress">Địa chỉ RTMP</Label>
                       <Input
                         id="rtmpAddress"
                         value={config.rtmpAddress}
@@ -1065,7 +1152,7 @@ function MediaMTXDashboard() {
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>HLS Server</Label>
+                      <Label>Máy chủ HLS</Label>
                       <p className="text-sm text-muted-foreground">HTTP Live Streaming</p>
                     </div>
                     <Switch
@@ -1075,7 +1162,7 @@ function MediaMTXDashboard() {
                   </div>
                   {config.hls && (
                     <div className="space-y-2 ml-4">
-                      <Label htmlFor="hlsAddress">HLS Address</Label>
+                      <Label htmlFor="hlsAddress">Địa chỉ HLS</Label>
                       <Input
                         id="hlsAddress"
                         value={config.hlsAddress}
@@ -1088,7 +1175,7 @@ function MediaMTXDashboard() {
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>WebRTC Server</Label>
+                      <Label>Máy chủ WebRTC</Label>
                       <p className="text-sm text-muted-foreground">Web Real-Time Communication</p>
                     </div>
                     <Switch
@@ -1098,7 +1185,7 @@ function MediaMTXDashboard() {
                   </div>
                   {config.webrtc && (
                     <div className="space-y-2 ml-4">
-                      <Label htmlFor="webrtcAddress">WebRTC Address</Label>
+                      <Label htmlFor="webrtcAddress">Địa chỉ WebRTC</Label>
                       <Input
                         id="webrtcAddress"
                         value={config.webrtcAddress}
@@ -1112,8 +1199,8 @@ function MediaMTXDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>API & Monitoring</CardTitle>
-                <CardDescription>Control API and metrics endpoints</CardDescription>
+                <CardTitle>API & giám sát</CardTitle>
+                <CardDescription>Endpoint Control API và metrics</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1121,7 +1208,7 @@ function MediaMTXDashboard() {
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
                         <Label>Control API</Label>
-                        <p className="text-sm text-muted-foreground">Enable REST API</p>
+                        <p className="text-sm text-muted-foreground">Bật REST API</p>
                       </div>
                       <Switch
                         checked={config.api}
@@ -1130,7 +1217,7 @@ function MediaMTXDashboard() {
                     </div>
                     {config.api && (
                       <div className="space-y-2 ml-4">
-                        <Label htmlFor="apiAddress">API Address</Label>
+                        <Label htmlFor="apiAddress">Địa chỉ API</Label>
                         <Input
                           id="apiAddress"
                           value={config.apiAddress}
@@ -1153,7 +1240,7 @@ function MediaMTXDashboard() {
                     </div>
                     {config.metrics && (
                       <div className="space-y-2 ml-4">
-                        <Label htmlFor="metricsAddress">Metrics Address</Label>
+                        <Label htmlFor="metricsAddress">Địa chỉ Metrics</Label>
                         <Input
                           id="metricsAddress"
                           value={config.metricsAddress}
@@ -1168,12 +1255,12 @@ function MediaMTXDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Control API Snapshot</CardTitle>
-                <CardDescription>Global configuration and path defaults loaded from MediaMTX</CardDescription>
+                <CardTitle>Snapshot Control API</CardTitle>
+                <CardDescription>Global configuration và path defaults đã tải từ MediaMTX</CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingPaths ? (
-                  <LoadingState label="Loading configuration..." />
+                  <LoadingState label="Đang tải cấu hình..." />
                 ) : dashboardError ? (
                   <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
                 ) : (
@@ -1181,7 +1268,7 @@ function MediaMTXDashboard() {
                     <div className="rounded-lg border p-4">
                       <p className="text-sm font-medium">Global config</p>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        Log level: {String(globalConfig?.logLevel || config.logLevel)}
+                        Mức log: {String(globalConfig?.logLevel || config.logLevel)}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         API: {String(globalConfig?.api ?? config.api)} at {String(globalConfig?.apiAddress || config.apiAddress)}
@@ -1196,7 +1283,7 @@ function MediaMTXDashboard() {
                       <p className="mt-2 text-sm text-muted-foreground">Source: {pathDefaults?.source || "publisher"}</p>
                       <p className="text-sm text-muted-foreground">Recording: {String(pathDefaults?.record || false)}</p>
                       <p className="text-sm text-muted-foreground">
-                        Max readers: {pathDefaults?.maxReaders ?? "unlimited"}
+                        Max readers: {pathDefaults?.maxReaders ?? "không giới hạn"}
                       </p>
                     </div>
                   </div>
@@ -1210,35 +1297,35 @@ function MediaMTXDashboard() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Stream Paths</CardTitle>
-                    <CardDescription>Configure streaming paths and sources</CardDescription>
+                    <CardTitle>Path stream</CardTitle>
+                    <CardDescription>Cấu hình path streaming và nguồn phát</CardDescription>
                   </div>
                   <Dialog open={isAddPathDialogOpen} onOpenChange={setIsAddPathDialogOpen}>
                     <DialogTrigger asChild>
                       <Button className="rounded-full bg-[#0052ff] hover:bg-[#003ecc]" disabled={!canUseApi}>
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Path
+                        Thêm path
                       </Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
                       <DialogHeader>
-                        <DialogTitle>Add New Path</DialogTitle>
-                        <DialogDescription>Configure a new streaming path in MediaMTX</DialogDescription>
+                        <DialogTitle>Thêm path mới</DialogTitle>
+                        <DialogDescription>Cấu hình một path streaming mới trong MediaMTX</DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                          <Label htmlFor="pathName">Path Name *</Label>
+                          <Label htmlFor="pathName">Tên path *</Label>
                           <Input
                             id="pathName"
                             placeholder="e.g., cam1, camera1"
                             value={newPath.name}
                             onChange={(e) => setNewPath({ ...newPath, name: e.target.value })}
                           />
-                          <p className="text-xs text-muted-foreground">Unique identifier for this path</p>
+                          <p className="text-xs text-muted-foreground">Định danh duy nhất cho path này</p>
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="source">Source URL *</Label>
+                          <Label htmlFor="source">URL nguồn *</Label>
                           <Input
                             id="source"
                             placeholder="rtsp://admin:password@192.168.50.50"
@@ -1246,12 +1333,12 @@ function MediaMTXDashboard() {
                             onChange={(e) => setNewPath({ ...newPath, source: e.target.value })}
                           />
                           <p className="text-xs text-muted-foreground">
-                            RTSP, RTMP, or HLS URL. Example: rtsp://admin:Admin1234@192.168.50.50
+                            URL RTSP, RTMP hoặc HLS. Ví dụ: rtsp://admin:Admin1234@192.168.50.50
                           </p>
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="sourceFingerprint">Source Fingerprint (Optional)</Label>
+                          <Label htmlFor="sourceFingerprint">Fingerprint nguồn (tùy chọn)</Label>
                           <Input
                             id="sourceFingerprint"
                             placeholder="SHA-256 fingerprint"
@@ -1259,7 +1346,7 @@ function MediaMTXDashboard() {
                             onChange={(e) => setNewPath({ ...newPath, sourceFingerprint: e.target.value })}
                           />
                           <p className="text-xs text-muted-foreground">
-                            Optional SHA-256 fingerprint for RTSPS sources
+                            Fingerprint SHA-256 tùy chọn cho nguồn RTSPS
                           </p>
                         </div>
 
@@ -1268,10 +1355,10 @@ function MediaMTXDashboard() {
                             checked={newPath.sourceOnDemand}
                             onCheckedChange={(checked) => setNewPath({ ...newPath, sourceOnDemand: checked })}
                           />
-                          <Label>Source On Demand</Label>
+                          <Label>Nguồn theo nhu cầu</Label>
                         </div>
                         <p className="text-xs text-muted-foreground ml-6">
-                          Start source only when requested by a client
+                          Chỉ khởi động nguồn khi có client yêu cầu
                         </p>
 
                         <Separator />
@@ -1281,26 +1368,26 @@ function MediaMTXDashboard() {
                             checked={newPath.record}
                             onCheckedChange={(checked) => setNewPath({ ...newPath, record: checked })}
                           />
-                          <Label>Enable Recording</Label>
+                          <Label>Bật ghi hình</Label>
                         </div>
 
                         {newPath.record && (
                           <>
                             <div className="space-y-2">
-                              <Label htmlFor="recordPath">Recording Path</Label>
+                              <Label htmlFor="recordPath">Đường dẫn ghi hình</Label>
                               <Input
                                 id="recordPath"
                                 value={newPath.recordPath}
                                 onChange={(e) => setNewPath({ ...newPath, recordPath: e.target.value })}
                               />
                               <p className="text-xs text-muted-foreground">
-                                Variables: %path, %Y %m %d (date), %H %M %S (time)
+                                Biến: %path, %Y %m %d (ngày), %H %M %S (giờ)
                               </p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
-                                <Label htmlFor="recordFormat">Format</Label>
+                                <Label htmlFor="recordFormat">Định dạng</Label>
                                 <Select
                                   value={newPath.recordFormat}
                                   onValueChange={(value) => setNewPath({ ...newPath, recordFormat: value })}
@@ -1316,7 +1403,7 @@ function MediaMTXDashboard() {
                               </div>
 
                               <div className="space-y-2">
-                                <Label htmlFor="recordPartDuration">Part Duration</Label>
+                                <Label htmlFor="recordPartDuration">Thời lượng part</Label>
                                 <Input
                                   id="recordPartDuration"
                                   value={newPath.recordPartDuration}
@@ -1327,7 +1414,7 @@ function MediaMTXDashboard() {
 
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
-                                <Label htmlFor="recordSegmentDuration">Segment Duration</Label>
+                                <Label htmlFor="recordSegmentDuration">Thời lượng segment</Label>
                                 <Input
                                   id="recordSegmentDuration"
                                   value={newPath.recordSegmentDuration}
@@ -1336,7 +1423,7 @@ function MediaMTXDashboard() {
                               </div>
 
                               <div className="space-y-2">
-                                <Label htmlFor="recordDeleteAfter">Delete After</Label>
+                                <Label htmlFor="recordDeleteAfter">Xóa sau</Label>
                                 <Input
                                   id="recordDeleteAfter"
                                   value={newPath.recordDeleteAfter}
@@ -1350,7 +1437,7 @@ function MediaMTXDashboard() {
                         <Separator />
 
                         <div className="space-y-2">
-                          <Label htmlFor="maxReaders">Max Readers (0 = unlimited)</Label>
+                          <Label htmlFor="maxReaders">Số reader tối đa (0 = không giới hạn)</Label>
                           <Input
                             id="maxReaders"
                             type="number"
@@ -1366,15 +1453,15 @@ function MediaMTXDashboard() {
                             checked={newPath.overridePublisher}
                             onCheckedChange={(checked) => setNewPath({ ...newPath, overridePublisher: checked })}
                           />
-                          <Label>Override Publisher</Label>
+                          <Label>Cho phép ghi đè publisher</Label>
                         </div>
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setIsAddPathDialogOpen(false)} disabled={isSubmitting}>
-                          Cancel
+                          Hủy
                         </Button>
                         <Button onClick={handleAddPath} disabled={isSubmitting || !canUseApi || !canPublish}>
-                          {isSubmitting ? "Adding..." : "Add Path"}
+                          {isSubmitting ? "Đang thêm..." : "Thêm path"}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -1384,18 +1471,18 @@ function MediaMTXDashboard() {
               <CardContent>
                 <div className="space-y-4">
                   {isLoadingPaths ? (
-                    <LoadingState label="Loading paths..." />
+                    <LoadingState label="Đang tải path..." />
                   ) : dashboardError ? (
                     <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
                   ) : !canRead ? (
-                    <EmptyState title="Read permission disabled" />
+                    <EmptyState title="Quyền read đang bị tắt" />
                   ) : paths.length === 0 ? (
                     <EmptyState
                       icon={<VideoIcon className="h-12 w-12 opacity-50" />}
-                      title="No paths configured"
+                      title="Chưa cấu hình path nào"
                       action={
                         canUseApi && canPublish ? (
-                          <Button onClick={() => setIsAddPathDialogOpen(true)}>Add Your First Path</Button>
+                          <Button onClick={() => setIsAddPathDialogOpen(true)}>Thêm path đầu tiên</Button>
                         ) : null
                       }
                     />
@@ -1415,134 +1502,36 @@ function MediaMTXDashboard() {
             />
           </TabsContent>
 
+          <TabsContent value="protocols" className="space-y-6">
+            <ProtocolServerManagement
+              permissions={permissions}
+              username={username}
+              paths={paths}
+              pathDefaults={pathDefaults}
+              appendAuditEvent={appendAuditEvent}
+              onChanged={fetchPaths}
+            />
+          </TabsContent>
+
           <TabsContent value="auth" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Current Session Permissions</CardTitle>
-                <CardDescription>Effective MediaMTX action categories resolved for this dashboard session</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-3">
-                {(["api", "metrics", "pprof", "publish", "read", "playback"] as const).map((action) => (
-                  <div key={action} className="flex items-center justify-between rounded-lg border p-3">
-                    <Label className="font-mono text-sm">{action}</Label>
-                    <Badge variant={permissions[action] !== false ? "default" : "secondary"}>
-                      {permissions[action] !== false ? "Granted" : "Unavailable"}
-                    </Badge>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <CardTitle>Authentication Method</CardTitle>
-                    <CardDescription>Configure how users authenticate with the server</CardDescription>
-                  </div>
-                  <Button variant="outline" onClick={handleRefreshJwks} disabled={!canUseApi}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Refresh JWKS
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Authentication Method</Label>
-                  <Select defaultValue="internal">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="internal">Internal (Configuration File)</SelectItem>
-                      <SelectItem value="http">HTTP (External URL)</SelectItem>
-                      <SelectItem value="jwt">JWT (Identity Server)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Internal Users</CardTitle>
-                    <CardDescription>Manage users stored in configuration</CardDescription>
-                  </div>
-                  <Button disabled={!canUseApi}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add User
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="p-4 border rounded-lg">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-medium">Default User (any)</h3>
-                      <Badge variant="secondary">Unprivileged</Badge>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Username</Label>
-                        <Input value="any" readOnly />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Password</Label>
-                        <Input type="password" placeholder="No password required" readOnly />
-                      </div>
-                    </div>
-                    <div className="mt-4">
-                      <Label>Permissions</Label>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <Badge>publish</Badge>
-                        <Badge>read</Badge>
-                        <Badge>playback</Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 border rounded-lg">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-medium">Administrator</h3>
-                      <Badge>Admin</Badge>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Username</Label>
-                        <Input value="admin" readOnly />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Password</Label>
-                        <Input type="password" value="adminpass" readOnly />
-                      </div>
-                    </div>
-                    <div className="mt-4">
-                      <Label>Permissions</Label>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <Badge>api</Badge>
-                        <Badge>metrics</Badge>
-                        <Badge>pprof</Badge>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <AuthConfigurationView
+              permissions={permissions}
+              username={username}
+              appendAuditEvent={appendAuditEvent}
+            />
           </TabsContent>
 
           <TabsContent value="recording" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Recording Settings</CardTitle>
-                <CardDescription>Configure stream recording options</CardDescription>
+                <CardTitle>Cài đặt ghi hình</CardTitle>
+                <CardDescription>Cấu hình tùy chọn ghi hình stream</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="recordFormat">Recording Format</Label>
+                      <Label htmlFor="recordFormat">Định dạng ghi hình</Label>
                       <Select defaultValue="fmp4">
                         <SelectTrigger>
                           <SelectValue />
@@ -1554,31 +1543,31 @@ function MediaMTXDashboard() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="recordPath">Recording Path</Label>
+                      <Label htmlFor="recordPath">Đường dẫn ghi hình</Label>
                       <Input defaultValue="./recordings/%path/%Y-%m-%d_%H-%M-%S-%f" />
                       <p className="text-xs text-muted-foreground">
-                        Variables: %path, %Y %m %d (date), %H %M %S (time)
+                        Biến: %path, %Y %m %d (ngày), %H %M %S (giờ)
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="segmentDuration">Segment Duration</Label>
+                      <Label htmlFor="segmentDuration">Thời lượng segment</Label>
                       <Input defaultValue="1h" />
                     </div>
                   </div>
 
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="partDuration">Part Duration</Label>
+                      <Label htmlFor="partDuration">Thời lượng part</Label>
                       <Input defaultValue="1s" />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="maxPartSize">Max Part Size</Label>
+                      <Label htmlFor="maxPartSize">Kích thước part tối đa</Label>
                       <Input defaultValue="50M" />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="deleteAfter">Delete After</Label>
+                      <Label htmlFor="deleteAfter">Xóa sau</Label>
                       <Input defaultValue="1d" />
-                      <p className="text-xs text-muted-foreground">Set to 0s to disable automatic deletion</p>
+                      <p className="text-xs text-muted-foreground">Đặt 0s để tắt tự động xóa</p>
                     </div>
                   </div>
                 </div>
@@ -1587,16 +1576,16 @@ function MediaMTXDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Recording Status</CardTitle>
-                <CardDescription>Current recording sessions</CardDescription>
+                <CardTitle>Trạng thái ghi hình</CardTitle>
+                <CardDescription>Các phiên ghi hình hiện tại</CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingPaths ? (
-                  <LoadingState label="Loading recordings..." />
+                  <LoadingState label="Đang tải ghi hình..." />
                 ) : dashboardError ? (
                   <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
                 ) : recordings.length === 0 ? (
-                  <EmptyState icon={<Play className="h-12 w-12 opacity-50" />} title="No recordings available" />
+                  <EmptyState icon={<Play className="h-12 w-12 opacity-50" />} title="Chưa có ghi hình" />
                 ) : (
                   <div className="space-y-4">
                     {recordings.map((recording) => {
@@ -1609,11 +1598,11 @@ function MediaMTXDashboard() {
                           </div>
                           <div>
                             <h3 className="font-medium">{recording.name}</h3>
-                            <p className="text-sm text-gray-500">{recording.segments?.length || 0} segments</p>
+                            <p className="text-sm text-gray-500">{recording.segments?.length || 0} segment</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant="secondary">Recorded</Badge>
+                          <Badge variant="secondary">Đã ghi</Badge>
                           {firstSegmentStart && (
                             <Button
                               size="sm"
@@ -1621,7 +1610,7 @@ function MediaMTXDashboard() {
                               disabled={!canUseApi || !canRead}
                               onClick={() => handleDeleteRecordingSegment(recording.name, firstSegmentStart)}
                             >
-                              Delete first segment
+                              Xóa segment đầu
                             </Button>
                           )}
                         </div>
@@ -1636,28 +1625,28 @@ function MediaMTXDashboard() {
           <TabsContent value="monitoring" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Refresh Controls</CardTitle>
-                <CardDescription>Runtime views use configurable polling and manual refresh</CardDescription>
+                <CardTitle>Điều khiển refresh</CardTitle>
+                <CardDescription>Các màn hình runtime dùng polling có cấu hình và refresh thủ công</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <Switch checked={isPollingEnabled} onCheckedChange={setIsPollingEnabled} />
-                  <Label>Polling enabled</Label>
+                  <Label>Bật polling</Label>
                 </div>
                 <Select value={String(pollingIntervalMs)} onValueChange={(value) => setPollingIntervalMs(Number(value))}>
                   <SelectTrigger className="w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="5000">5 seconds</SelectItem>
-                    <SelectItem value="10000">10 seconds</SelectItem>
-                    <SelectItem value="30000">30 seconds</SelectItem>
-                    <SelectItem value="60000">60 seconds</SelectItem>
+                    <SelectItem value="5000">5 giây</SelectItem>
+                    <SelectItem value="10000">10 giây</SelectItem>
+                    <SelectItem value="30000">30 giây</SelectItem>
+                    <SelectItem value="60000">60 giây</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button variant="outline" onClick={() => polling.refresh().catch(() => undefined)}>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh now
+                  Refresh ngay
                 </Button>
               </CardContent>
             </Card>
@@ -1665,22 +1654,22 @@ function MediaMTXDashboard() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm font-medium">HLS Muxers</CardTitle>
-                  <CardDescription>Runtime HLS activity</CardDescription>
+                  <CardTitle className="text-sm font-medium">HLS muxer</CardTitle>
+                  <CardDescription>Hoạt động HLS runtime</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {isLoadingPaths ? (
-                    <LoadingState label="Loading muxers..." />
+                    <LoadingState label="Đang tải muxer..." />
                   ) : dashboardError ? (
                     <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
                   ) : hlsMuxers.length === 0 ? (
-                    <EmptyState title="No HLS muxers" />
+                    <EmptyState title="Chưa có HLS muxer" />
                   ) : (
                     <div className="space-y-2">
                       {hlsMuxers.map((muxer) => (
                         <div key={muxer.name} className="rounded-lg border p-3 text-sm">
                           <div className="font-medium">{muxer.name}</div>
-                          <div className="text-muted-foreground">{formatMegabytes(muxer.bytesSent || 0)} sent</div>
+                          <div className="text-muted-foreground">{formatMegabytes(muxer.bytesSent || 0)} đã gửi</div>
                         </div>
                       ))}
                     </div>
@@ -1690,12 +1679,12 @@ function MediaMTXDashboard() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm font-medium">Protocol Resources</CardTitle>
-                  <CardDescription>Connections and sessions</CardDescription>
+                  <CardTitle className="text-sm font-medium">Tài nguyên protocol</CardTitle>
+                  <CardDescription>Connection và session</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {isLoadingPaths ? (
-                    <LoadingState label="Loading protocol resources..." />
+                    <LoadingState label="Đang tải tài nguyên protocol..." />
                   ) : dashboardError ? (
                     <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
                   ) : (
@@ -1714,17 +1703,17 @@ function MediaMTXDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-sm font-medium">Metrics</CardTitle>
-                  <CardDescription>Prometheus endpoint</CardDescription>
+                  <CardDescription>Endpoint Prometheus</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {canUseMetrics ? (
                     <Button asChild variant="outline">
                       <a href={buildMediaMtxMetricsUrl()} target="_blank" rel="noreferrer">
-                        Open metrics
+                        Mở metrics
                       </a>
                     </Button>
                   ) : (
-                    <EmptyState title="Metrics permission disabled" />
+                    <EmptyState title="Quyền metrics đang bị tắt" />
                   )}
                 </CardContent>
               </Card>
@@ -1732,17 +1721,17 @@ function MediaMTXDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-sm font-medium">pprof</CardTitle>
-                  <CardDescription>Runtime profiling endpoint</CardDescription>
+                  <CardDescription>Endpoint profiling runtime</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {canUsePprof ? (
                     <Button asChild variant="outline">
                       <a href={buildMediaMtxPprofUrl()} target="_blank" rel="noreferrer">
-                        Open pprof
+                        Mở pprof
                       </a>
                     </Button>
                   ) : (
-                    <EmptyState title="pprof permission disabled" />
+                    <EmptyState title="Quyền pprof đang bị tắt" />
                   )}
                 </CardContent>
               </Card>
@@ -1751,7 +1740,7 @@ function MediaMTXDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">CPU Usage</CardTitle>
+                  <CardTitle className="text-sm font-medium">CPU sử dụng</CardTitle>
                   <Activity className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -1764,7 +1753,7 @@ function MediaMTXDashboard() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Memory Usage</CardTitle>
+                  <CardTitle className="text-sm font-medium">Bộ nhớ sử dụng</CardTitle>
                   <Activity className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -1789,36 +1778,70 @@ function MediaMTXDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Service URLs</CardTitle>
-                <CardDescription>Resolved browser-side MediaMTX service endpoints</CardDescription>
+                <CardTitle>URL dịch vụ</CardTitle>
+                <CardDescription>
+                  Cấu hình endpoint MediaMTX phía trình duyệt. Proxy Control API phía server vẫn dùng `MEDIAMTX_API_URL`
+                  riêng.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-3 text-sm md:grid-cols-2">
-                <div className="rounded-lg border p-3">
-                  <div className="font-medium">Control API</div>
-                  <div className="break-all font-mono text-xs text-muted-foreground">{normalizeMediaMtxApiBaseUrl()}</div>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {[
+                    ["controlApi", "Control API", "Ví dụ: /api/mediamtx hoặc http://localhost:9997"],
+                    ["hls", "HLS", "Ví dụ: http://localhost:8888"],
+                    ["playback", "Playback", "Ví dụ: http://localhost:8888"],
+                    ["metrics", "Metrics", "Ví dụ: http://localhost:9998"],
+                    ["pprof", "pprof", "Ví dụ: http://localhost:9999"],
+                  ].map(([key, label, help]) => (
+                    <div key={key} className="space-y-2">
+                      <Label htmlFor={`service-url-${key}`}>{label}</Label>
+                      <Input
+                        id={`service-url-${key}`}
+                        value={serviceUrlDraft[key as keyof typeof serviceUrlDraft]}
+                        onChange={(event) =>
+                          setServiceUrlDraft((current) => ({ ...current, [key]: event.target.value }))
+                        }
+                        className={serviceUrlErrors[key] ? "border-[#cf202f]" : undefined}
+                      />
+                      <p className="text-xs text-muted-foreground">{help}</p>
+                      {serviceUrlErrors[key] && <p className="text-xs text-[#cf202f]">{serviceUrlErrors[key]}</p>}
+                    </div>
+                  ))}
                 </div>
-                <div className="rounded-lg border p-3">
-                  <div className="font-medium">HLS</div>
-                  <div className="break-all font-mono text-xs text-muted-foreground">{normalizeMediaMtxHlsBaseUrl()}</div>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <div className="font-medium">Playback sample</div>
-                  <div className="break-all font-mono text-xs text-muted-foreground">
-                    {buildMediaMtxPlaybackUrl(selectedStreamPath || "stream")}
+                <div className="grid gap-3 rounded-lg border bg-[#f7f8fa] p-3 text-sm md:grid-cols-2">
+                  <div>
+                    <div className="font-medium">Control API đã resolve</div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">{normalizeMediaMtxApiBaseUrl()}</div>
+                  </div>
+                  <div>
+                    <div className="font-medium">HLS đã resolve</div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">{normalizeMediaMtxHlsBaseUrl()}</div>
+                  </div>
+                  <div>
+                    <div className="font-medium">Playback mẫu</div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">
+                      {buildMediaMtxPlaybackUrl(selectedStreamPath || "stream")}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="font-medium">Metrics và pprof đã resolve</div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">{buildMediaMtxMetricsUrl()}</div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">{buildMediaMtxPprofUrl()}</div>
                   </div>
                 </div>
-                <div className="rounded-lg border p-3">
-                  <div className="font-medium">Metrics and pprof</div>
-                  <div className="break-all font-mono text-xs text-muted-foreground">{buildMediaMtxMetricsUrl()}</div>
-                  <div className="break-all font-mono text-xs text-muted-foreground">{buildMediaMtxPprofUrl()}</div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handleSaveServiceUrls}>Lưu URL dịch vụ</Button>
+                  <Button variant="outline" onClick={handleResetServiceUrls}>
+                    Đặt lại mặc định
+                  </Button>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Server Logs</CardTitle>
-                <CardDescription>Recent server activity and events</CardDescription>
+                <CardTitle>Log máy chủ</CardTitle>
+                <CardDescription>Hoạt động và sự kiện máy chủ gần đây</CardDescription>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-64 w-full border rounded-lg p-4">
@@ -1856,7 +1879,7 @@ function MediaMTXDashboard() {
                     </Select>
                   </div>
                   <Button size="sm" variant="outline">
-                    Clear Logs
+                    Xóa log
                   </Button>
                 </div>
               </CardContent>
@@ -1864,12 +1887,12 @@ function MediaMTXDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Audit Log</CardTitle>
-                <CardDescription>Recent dashboard administrative operations</CardDescription>
+                <CardTitle>Nhật ký audit</CardTitle>
+                <CardDescription>Thao tác quản trị dashboard gần đây</CardDescription>
               </CardHeader>
               <CardContent>
                 {auditEvents.length === 0 ? (
-                  <EmptyState title="No audit entries yet" />
+                  <EmptyState title="Chưa có bản ghi audit" />
                 ) : (
                   <ScrollArea className="h-72 rounded-lg border p-4">
                     <div className="space-y-3">
@@ -1877,10 +1900,12 @@ function MediaMTXDashboard() {
                         <div key={event.id} className="rounded-lg border p-3 text-sm">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="font-medium">{event.action}</div>
-                            <Badge variant={event.result === "success" ? "default" : "destructive"}>{event.result}</Badge>
+                            <Badge variant={event.result === "success" ? "default" : "destructive"}>
+                              {event.result === "success" ? "Thành công" : "Thất bại"}
+                            </Badge>
                           </div>
                           <div className="mt-1 text-muted-foreground">
-                            {new Date(event.timestamp).toLocaleString()} by {event.actor || "unknown"} on {event.target}
+                            {new Date(event.timestamp).toLocaleString()} bởi {event.actor || "không rõ"} trên {event.target}
                           </div>
                           {event.payloadSummary && (
                             <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
@@ -1902,18 +1927,18 @@ function MediaMTXDashboard() {
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Path: {editingPath?.name}</DialogTitle>
-            <DialogDescription>Update the configuration for this streaming path</DialogDescription>
+            <DialogTitle>Sửa path: {editingPath?.name}</DialogTitle>
+            <DialogDescription>Cập nhật cấu hình cho path streaming này</DialogDescription>
           </DialogHeader>
           {editingPath && (
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Path Name</Label>
+                <Label>Tên path</Label>
                 <Input value={editingPath.name} disabled />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="editSource">Source URL</Label>
+                <Label htmlFor="editSource">URL nguồn</Label>
                 <Input
                   id="editSource"
                   value={editingPath.source}
@@ -1926,7 +1951,7 @@ function MediaMTXDashboard() {
                   checked={editingPath.sourceOnDemand}
                   onCheckedChange={(checked) => setEditingPath({ ...editingPath, sourceOnDemand: checked })}
                 />
-                <Label>Source On Demand</Label>
+                <Label>Nguồn theo nhu cầu</Label>
               </div>
 
               <Separator />
@@ -1936,13 +1961,13 @@ function MediaMTXDashboard() {
                   checked={editingPath.record}
                   onCheckedChange={(checked) => setEditingPath({ ...editingPath, record: checked })}
                 />
-                <Label>Enable Recording</Label>
+                <Label>Bật ghi hình</Label>
               </div>
 
               {editingPath.record && (
                 <div className="space-y-4 ml-6">
                   <div className="space-y-2">
-                    <Label>Recording Path</Label>
+                    <Label>Đường dẫn ghi hình</Label>
                     <Input
                       value={editingPath.recordPath || ""}
                       onChange={(e) => setEditingPath({ ...editingPath, recordPath: e.target.value })}
@@ -1950,7 +1975,7 @@ function MediaMTXDashboard() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Format</Label>
+                      <Label>Định dạng</Label>
                       <Select
                         value={editingPath.recordFormat}
                         onValueChange={(value) => setEditingPath({ ...editingPath, recordFormat: value })}
@@ -1965,7 +1990,7 @@ function MediaMTXDashboard() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Segment Duration</Label>
+                      <Label>Thời lượng segment</Label>
                       <Input
                         value={editingPath.recordSegmentDuration || ""}
                         onChange={(e) => setEditingPath({ ...editingPath, recordSegmentDuration: e.target.value })}
@@ -1978,10 +2003,10 @@ function MediaMTXDashboard() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} disabled={isSubmitting}>
-              Cancel
+              Hủy
             </Button>
             <Button onClick={handleUpdatePath} disabled={isSubmitting}>
-              {isSubmitting ? "Updating..." : "Update Path"}
+              {isSubmitting ? "Đang cập nhật..." : "Cập nhật path"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1990,17 +2015,17 @@ function MediaMTXDashboard() {
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Path</DialogTitle>
+            <DialogTitle>Xóa path</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete the path &quot;{pathToDelete}&quot;? This action cannot be undone.
+              Bạn có chắc muốn xóa path &quot;{pathToDelete}&quot;? Thao tác này không thể hoàn tác.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)} disabled={isSubmitting}>
-              Cancel
+              Hủy
             </Button>
             <Button variant="destructive" onClick={handleDeletePath} disabled={isSubmitting}>
-              {isSubmitting ? "Deleting..." : "Delete"}
+              {isSubmitting ? "Đang xóa..." : "Xóa"}
             </Button>
           </DialogFooter>
         </DialogContent>

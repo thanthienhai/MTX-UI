@@ -19,6 +19,8 @@ for (const expected of [
   "buildMediaMtxMetricsUrl",
   "buildMediaMtxPprofUrl",
   "refreshJwks",
+  "rtspTlsEnabled ? api.rtspsConnections.list() : Promise.resolve([])",
+  "rtmpTlsEnabled ? api.rtmpsConnections.list() : Promise.resolve([])",
 ]) {
   assert.ok(page.includes(expected), `Dashboard missing integration: ${expected}`)
 }
@@ -28,4 +30,3 @@ assert.ok(layout.includes("NotificationProvider"), "App shell must include Notif
 for (const expected of ["setInterval", "clearInterval", "document.visibilityState", "enabled", "intervalMs"]) {
   assert.ok(polling.includes(expected), `Polling hook missing behavior: ${expected}`)
 }
-

@@ -42,7 +42,7 @@ export default function LoginPage() {
       setError(
         err instanceof DashboardLoginError
           ? err.userMessage
-          : "Failed to connect to MediaMTX or validate the provided credentials.",
+          : "Không thể kết nối MediaMTX hoặc xác thực thông tin đã nhập.",
       )
       console.error("Login error:", err)
     } finally {
@@ -57,13 +57,13 @@ export default function LoginPage() {
           <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg mb-4">
             <Radio className="w-6 h-6 text-white" />
           </div>
-          <CardTitle className="text-2xl font-bold text-center">MediaMTX Dashboard</CardTitle>
-          <CardDescription className="text-center">Sign in to manage your media streaming server</CardDescription>
+          <CardTitle className="text-2xl font-bold text-center">Bảng điều khiển MediaMTX</CardTitle>
+          <CardDescription className="text-center">Đăng nhập để quản trị máy chủ streaming</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="credentialMode">Credential type</Label>
+              <Label htmlFor="credentialMode">Kiểu xác thực</Label>
               <Select value={credentialMode} onValueChange={(value) => setCredentialMode(value as DashboardCredentialMode)}>
                 <SelectTrigger id="credentialMode">
                   <SelectValue />
@@ -76,7 +76,7 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">Tên người dùng</Label>
               <Input
                 id="username"
                 type="text"
@@ -91,11 +91,11 @@ export default function LoginPage() {
 
             {credentialMode === "basic" ? (
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">Mật khẩu</Label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Password"
+                  placeholder="Mật khẩu"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -108,7 +108,7 @@ export default function LoginPage() {
                 <Input
                   id="token"
                   type="password"
-                  placeholder="Paste bearer token"
+                  placeholder="Dán bearer token"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   required
@@ -125,17 +125,17 @@ export default function LoginPage() {
             )}
 
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign In"}
+              {isLoading ? "Đang đăng nhập..." : "Đăng nhập"}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-500">
-            <p>Default credentials:</p>
+            <p>Thông tin mặc định:</p>
             <p className="font-mono text-xs mt-1">
-              Username: <span className="font-semibold">admin</span> | Password:{" "}
+              Tên người dùng: <span className="font-semibold">admin</span> | Mật khẩu:{" "}
               <span className="font-semibold">adminpass</span>
             </p>
-            <p className="mt-2 text-xs">Token/JWT mode sends the credential as a bearer token.</p>
+            <p className="mt-2 text-xs">Chế độ Token/JWT gửi thông tin xác thực dưới dạng bearer token.</p>
           </div>
         </CardContent>
       </Card>

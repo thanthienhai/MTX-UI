@@ -54,16 +54,16 @@ function buildUserMessage(options: MediaMtxApiErrorOptions) {
   if (typeof options.body === "string" && options.body.trim()) return options.body
 
   if (options.status) {
-    return `MediaMTX API request failed (${options.status}${options.statusText ? ` ${options.statusText}` : ""})`
+    return `Yêu cầu MediaMTX API thất bại (${options.status}${options.statusText ? ` ${options.statusText}` : ""})`
   }
 
-  return "MediaMTX API request failed"
+  return "Không thể gọi MediaMTX API. Kiểm tra URL API, mạng và quyền truy cập."
 }
 
 export function getMediaMtxErrorMessage(error: unknown) {
   if (error instanceof MediaMtxApiError) return error.userMessage
   if (error instanceof Error) return error.message
-  return "Unknown MediaMTX API error"
+  return "Lỗi MediaMTX API không xác định"
 }
 
 export interface AuthInternalUserPermission {
@@ -94,20 +94,81 @@ export interface GlobalConf extends JsonObject {
   runOnConnectRestart?: boolean
   runOnDisconnect?: string
   rtsp?: boolean
+  rtspTransports?: string[]
+  rtspEncryption?: string
   rtspAddress?: string
+  rtspsAddress?: string
+  rtpAddress?: string
+  rtcpAddress?: string
+  multicastIPRange?: string
+  multicastRTPPort?: number
+  multicastRTCPPort?: number
+  srtpAddress?: string
+  srtcpAddress?: string
+  multicastSRTPPort?: number
+  multicastSRTCPPort?: number
+  rtspServerKey?: string
+  rtspServerCert?: string
+  rtspAuthMethods?: string[]
+  rtspUDPReadBufferSize?: number
   rtmp?: boolean
+  rtmpEncryption?: string
   rtmpAddress?: string
+  rtmpsAddress?: string
+  rtmpServerKey?: string
+  rtmpServerCert?: string
   hls?: boolean
   hlsAddress?: string
+  hlsEncryption?: boolean
+  hlsServerKey?: string
+  hlsServerCert?: string
+  hlsAllowOrigin?: string
+  hlsTrustedProxies?: string[]
+  hlsAlwaysRemux?: boolean
+  hlsVariant?: string
+  hlsSegmentCount?: number
+  hlsSegmentDuration?: string
+  hlsPartDuration?: string
+  hlsSegmentMaxSize?: string
+  hlsDirectory?: string
+  hlsMuxerCloseAfter?: string
   webrtc?: boolean
   webrtcAddress?: string
+  webrtcEncryption?: boolean
+  webrtcServerKey?: string
+  webrtcServerCert?: string
+  webrtcAllowOrigin?: string
+  webrtcTrustedProxies?: string[]
+  webrtcLocalUDPAddress?: string
+  webrtcLocalTCPAddress?: string
+  webrtcIPsFromInterfaces?: boolean
+  webrtcIPsFromInterfacesList?: string[]
+  webrtcAdditionalHosts?: string[]
+  webrtcICEServers2?: unknown[]
+  webrtcHandshakeTimeout?: string
+  webrtcTrackGatherTimeout?: string
+  webrtcSTUNGatherTimeout?: string
+  srt?: boolean
+  srtAddress?: string
+  rtspDemuxMpegts?: boolean
   api?: boolean
   apiAddress?: string
   metrics?: boolean
   metricsAddress?: string
   pprof?: boolean
   pprofAddress?: string
+  authMethod?: "internal" | "http" | "jwt" | string
   authInternalUsers?: AuthInternalUser[]
+  authHTTPAddress?: string
+  authHTTPFingerprint?: string
+  authHTTPExclude?: AuthInternalUserPermission[]
+  authJWTJWKS?: string
+  authJWTJWKSFingerprint?: string
+  authJWTClaimKey?: string
+  authJWTExclude?: AuthInternalUserPermission[]
+  authJWTIssuer?: string
+  authJWTAudience?: string
+  authJWTInHTTPQuery?: boolean
 }
 
 export interface PathConf extends JsonObject {
@@ -125,6 +186,17 @@ export interface PathConf extends JsonObject {
   recordSegmentDuration?: string
   recordDeleteAfter?: string
   overridePublisher?: boolean
+  useAbsoluteTimestamp?: boolean
+  srtReadPassphrase?: string
+  srtPublishPassphrase?: string
+  rtspTransport?: string
+  rtspAnyPort?: boolean
+  rtspRangeType?: string
+  rtspRangeStart?: string
+  rtspUDPReadBufferSize?: number
+  mpegtsUDPReadBufferSize?: number
+  rtpSDP?: string
+  rtpUDPReadBufferSize?: number
 }
 
 export type PathConfig = PathConf
@@ -145,6 +217,8 @@ export interface PathSource {
 export interface PathReader {
   type: string
   id: string
+  bytesReceived?: number
+  bytesSent?: number
 }
 
 export interface Path extends JsonObject {
@@ -178,6 +252,17 @@ export interface ProtocolResource extends JsonObject {
   path?: string
   bytesReceived?: number
   bytesSent?: number
+  rtt?: number
+  rttMs?: number
+  packetLoss?: number
+  packetsLost?: number
+  packetLossPercentage?: number
+  retransmitPackets?: number
+  packetsRetransmitted?: number
+  sendRate?: number
+  receiveRate?: number
+  sendRateBps?: number
+  receiveRateBps?: number
 }
 
 export type RTSPConn = ProtocolResource
@@ -215,6 +300,90 @@ export interface MediaMtxRequestOptions<TBody = unknown> {
   apiUrl?: string
   query?: Record<string, string | number | boolean | undefined | null>
   fetchImpl?: typeof fetch
+}
+
+export interface KickResolution {
+  supported: true
+  clientType: string
+  id: string
+  kick: (id: string) => Promise<unknown>
+}
+
+export interface KickResolutionUnsupported {
+  supported: false
+  clientType: string | null
+  id: string
+  reason: string
+}
+
+export type PathReaderKickResult = KickResolution | KickResolutionUnsupported
+
+/**
+ * Resolve a PathReader or protocol resource to the appropriate kick method.
+ * Returns a structured result indicating whether the reader type supports kicking.
+ */
+/**
+ * Returns only the supported (kickable) readers from a runtime path.
+ */
+export function getKickableReaders(path: Path): KickResolution[] {
+  return path.readers
+    .map(resolveReaderKick)
+    .filter((r): r is KickResolution => r.supported)
+}
+
+export function resolveReaderKick(
+  reader: PathReader,
+): KickResolution | KickResolutionUnsupported {
+  const id = reader.id
+  const type = reader.type?.toLowerCase() || ""
+
+  // RTSP session -> kickable
+  if (type.includes("rtspsession") || type === "rtspSession" || type === "rtsp") {
+    return { supported: true, clientType: "rtspSessions", id, kick: rtspSessions.kick }
+  }
+
+  // RTSPS session -> kickable
+  if (type.includes("rtspssession") || type === "rtspsSession") {
+    return { supported: true, clientType: "rtspsSessions", id, kick: rtspsSessions.kick }
+  }
+
+  // RTMP connection -> kickable
+  if (type.includes("rtmpconn") || type === "rtmpConn" || type === "rtmp") {
+    return { supported: true, clientType: "rtmpConnections", id, kick: rtmpConnections.kick }
+  }
+
+  // RTMPS connection -> kickable
+  if (type.includes("rtmpsconn") || type === "rtmpsConn") {
+    return { supported: true, clientType: "rtmpsConnections", id, kick: rtmpsConnections.kick }
+  }
+
+  // SRT connection -> kickable
+  if (type.includes("srtconn") || type === "srtConn" || type === "srt") {
+    return { supported: true, clientType: "srtConnections", id, kick: srtConnections.kick }
+  }
+
+  // WebRTC session -> kickable
+  if (type.includes("webrtcsession") || type === "webrtcSession" || type === "webrtc") {
+    return { supported: true, clientType: "webrtcSessions", id, kick: webrtcSessions.kick }
+  }
+
+  // RTSP connection -> read-only (cannot kick)
+  if (type.includes("rtspconn") || type === "rtspConn") {
+    return { supported: false, clientType: "rtspConnections", id, reason: "RTSP connections are read-only and cannot be kicked" }
+  }
+
+  // RTSPS connection -> read-only
+  if (type.includes("rtspsconn") || type === "rtspsConn") {
+    return { supported: false, clientType: "rtspsConnections", id, reason: "RTSPS connections are read-only and cannot be kicked" }
+  }
+
+  // HLS muxer -> read-only
+  if (type.includes("hlsmuxer") || type === "hlsMuxer" || type === "hls") {
+    return { supported: false, clientType: "hlsMuxers", id, reason: "HLS muxers are read-only and cannot be kicked" }
+  }
+
+  // Unknown type
+  return { supported: false, clientType: null, id, reason: `Unsupported reader type: ${reader.type}. Cannot determine a kick endpoint.` }
 }
 
 function encodePathParam(value: string) {
@@ -315,6 +484,48 @@ export async function getGlobalConfig() {
 
 export async function patchGlobalConfig(config: Partial<GlobalConf>) {
   return fetchMediaMtxApi<null, Partial<GlobalConf>>("/v3/config/global/patch", { method: "PATCH", body: config })
+}
+
+export type AuthConfigurationPatch = Pick<
+  GlobalConf,
+  | "authMethod"
+  | "authInternalUsers"
+  | "authHTTPAddress"
+  | "authHTTPFingerprint"
+  | "authHTTPExclude"
+  | "authJWTJWKS"
+  | "authJWTJWKSFingerprint"
+  | "authJWTClaimKey"
+  | "authJWTExclude"
+  | "authJWTIssuer"
+  | "authJWTAudience"
+  | "authJWTInHTTPQuery"
+>
+
+export async function patchAuthConfiguration(config: Partial<AuthConfigurationPatch>) {
+  return patchGlobalConfig(config)
+}
+
+export interface TestHttpAuthEndpointRequest extends JsonObject {
+  address: string
+  fingerprint?: string
+  action?: string
+  path?: string
+  user?: string
+  password?: string
+  ip?: string
+}
+
+export interface TestHttpAuthEndpointResponse extends JsonObject {
+  ok?: boolean
+  message?: string
+}
+
+export async function testHttpAuthEndpoint(request: TestHttpAuthEndpointRequest) {
+  return fetchMediaMtxApi<TestHttpAuthEndpointResponse, TestHttpAuthEndpointRequest>("/v3/auth/http/test", {
+    method: "POST",
+    body: request,
+  })
 }
 
 export async function getPathDefaults() {
