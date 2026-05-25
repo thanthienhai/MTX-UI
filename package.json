@@ -6,7 +6,7 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
-    "test": "node scripts/test-mediamtx-url.mjs",
+    "test": "node scripts/test-mediamtx-url.mjs && node scripts/test-mediamtx-openapi-contract.mjs && node scripts/test-mediamtx-api-client.mjs && node scripts/test-mediamtx-proxy-route.mjs && node scripts/test-dashboard-experience.mjs && node scripts/test-dashboard-auth-session.mjs && node scripts/test-dashboard-overview.mjs",
     "start": "next start"
   },
   "dependencies": {

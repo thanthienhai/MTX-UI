@@ -1,7 +1,116 @@
 import { getAuthHeader } from "./auth"
 import { buildMediaMtxApiUrl } from "./mediamtx-url.mjs"
 
-export interface PathConfig {
+type JsonObject = Record<string, unknown>
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+
+export interface MediaMtxErrorBody {
+  error?: string
+  message?: string
+  details?: unknown
+  [key: string]: unknown
+}
+
+export interface MediaMtxApiErrorOptions {
+  method: HttpMethod
+  endpoint: string
+  status?: number
+  statusText?: string
+  body?: MediaMtxErrorBody | string | null
+  rawBody?: string
+  cause?: unknown
+  message?: string
+}
+
+export class MediaMtxApiError extends Error {
+  method: HttpMethod
+  endpoint: string
+  status?: number
+  statusText?: string
+  body?: MediaMtxErrorBody | string | null
+  rawBody?: string
+  userMessage: string
+
+  constructor(options: MediaMtxApiErrorOptions) {
+    const message = options.message || buildUserMessage(options)
+    super(message, { cause: options.cause })
+    this.name = "MediaMtxApiError"
+    this.method = options.method
+    this.endpoint = options.endpoint
+    this.status = options.status
+    this.statusText = options.statusText
+    this.body = options.body
+    this.rawBody = options.rawBody
+    this.userMessage = message
+  }
+}
+
+function buildUserMessage(options: MediaMtxApiErrorOptions) {
+  if (typeof options.body === "object" && options.body) {
+    const bodyMessage = options.body.error || options.body.message
+    if (typeof bodyMessage === "string" && bodyMessage.trim()) return bodyMessage
+  }
+
+  if (typeof options.body === "string" && options.body.trim()) return options.body
+
+  if (options.status) {
+    return `MediaMTX API request failed (${options.status}${options.statusText ? ` ${options.statusText}` : ""})`
+  }
+
+  return "MediaMTX API request failed"
+}
+
+export function getMediaMtxErrorMessage(error: unknown) {
+  if (error instanceof MediaMtxApiError) return error.userMessage
+  if (error instanceof Error) return error.message
+  return "Unknown MediaMTX API error"
+}
+
+export interface AuthInternalUserPermission {
+  action: string
+  path?: string
+}
+
+export interface AuthInternalUser {
+  user: string
+  pass?: string
+  ips?: string[]
+  permissions?: AuthInternalUserPermission[]
+}
+
+export interface GlobalConf extends JsonObject {
+  logLevel?: string
+  logDestinations?: string
+  logStructured?: boolean
+  logFile?: string
+  sysLogPrefix?: string
+  dumpPackets?: boolean
+  readTimeout?: string
+  writeTimeout?: string
+  writeQueueSize?: number
+  udpMaxPayloadSize?: number
+  udpReadBufferSize?: number
+  runOnConnect?: string
+  runOnConnectRestart?: boolean
+  runOnDisconnect?: string
+  rtsp?: boolean
+  rtspAddress?: string
+  rtmp?: boolean
+  rtmpAddress?: string
+  hls?: boolean
+  hlsAddress?: string
+  webrtc?: boolean
+  webrtcAddress?: string
+  api?: boolean
+  apiAddress?: string
+  metrics?: boolean
+  metricsAddress?: string
+  pprof?: boolean
+  pprofAddress?: string
+  authInternalUsers?: AuthInternalUser[]
+}
+
+export interface PathConf extends JsonObject {
   name: string
   source: string
   sourceFingerprint?: string
@@ -18,6 +127,16 @@ export interface PathConfig {
   overridePublisher?: boolean
 }
 
+export type PathConfig = PathConf
+
+export interface ListResponse<T> {
+  itemCount?: number
+  pageCount?: number
+  items: T[]
+}
+
+export type PathConfList = ListResponse<PathConf>
+
 export interface PathSource {
   type: string
   id: string
@@ -28,7 +147,7 @@ export interface PathReader {
   id: string
 }
 
-export interface Path {
+export interface Path extends JsonObject {
   name: string
   confName: string
   source: PathSource | null
@@ -40,127 +159,257 @@ export interface Path {
   readers: PathReader[]
 }
 
-async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const authHeader = getAuthHeader()
+export type PathList = ListResponse<Path>
 
-  const response = await fetch(buildMediaMtxApiUrl(endpoint), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader,
-      ...options.headers,
-    },
-  })
+export interface HLSMuxer extends JsonObject {
+  name: string
+  created: string
+  lastRequest: string
+  bytesSent: number
+}
 
-  const contentType = response.headers.get("content-type") || ""
+export type HLSMuxerList = ListResponse<HLSMuxer>
 
-  if (!response.ok) {
-    let errorText = ""
-    try {
-      errorText = await response.text()
-    } catch {}
-    throw new Error(errorText || `API request failed: ${response.status} ${response.statusText}`)
+export interface ProtocolResource extends JsonObject {
+  id: string
+  created?: string
+  remoteAddr?: string
+  state?: string
+  path?: string
+  bytesReceived?: number
+  bytesSent?: number
+}
+
+export type RTSPConn = ProtocolResource
+export type RTSPConnList = ListResponse<RTSPConn>
+export type RTSPSession = ProtocolResource
+export type RTSPSessionList = ListResponse<RTSPSession>
+export type RTMPConn = ProtocolResource
+export type RTMPConnList = ListResponse<RTMPConn>
+export type SRTConn = ProtocolResource
+export type SRTConnList = ListResponse<SRTConn>
+export type WebRTCSession = ProtocolResource
+export type WebRTCSessionList = ListResponse<WebRTCSession>
+
+export interface RecordingSegment extends JsonObject {
+  start: string
+  duration: number
+}
+
+export interface Recording extends JsonObject {
+  name: string
+  segments?: RecordingSegment[]
+}
+
+export type RecordingList = ListResponse<Recording>
+
+export interface DeleteRecordingSegmentParams extends Record<string, string> {
+  path: string
+  start: string
+}
+
+export interface MediaMtxRequestOptions<TBody = unknown> {
+  method?: HttpMethod
+  body?: TBody
+  headers?: HeadersInit
+  apiUrl?: string
+  query?: Record<string, string | number | boolean | undefined | null>
+  fetchImpl?: typeof fetch
+}
+
+function encodePathParam(value: string) {
+  return encodeURIComponent(value)
+}
+
+function withQuery(endpoint: string, query?: MediaMtxRequestOptions["query"]) {
+  if (!query) return endpoint
+
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null) params.set(key, String(value))
   }
 
+  const queryString = params.toString()
+  if (!queryString) return endpoint
+
+  return `${endpoint}${endpoint.includes("?") ? "&" : "?"}${queryString}`
+}
+
+async function parseResponseBody(response: Response, method: HttpMethod, endpoint: string) {
   if (response.status === 204) return null
 
-  // Some MediaMTX endpoints return an empty body on success; avoid JSON parse errors
-  const text = await response.text()
-  if (!text) return null
+  const contentType = response.headers.get("content-type") || ""
+  const rawBody = await response.text()
+  if (!rawBody) return null
 
-  if (contentType.includes("application/json")) {
-    try {
-      return JSON.parse(text)
-    } catch (e) {
-      throw new Error("Invalid JSON in response")
-    }
+  if (!contentType.includes("application/json")) return rawBody
+
+  try {
+    return JSON.parse(rawBody)
+  } catch (cause) {
+    throw new MediaMtxApiError({
+      method,
+      endpoint,
+      status: response.status,
+      statusText: response.statusText,
+      rawBody,
+      cause,
+      message: "MediaMTX API returned invalid JSON",
+    })
   }
-
-  return text
 }
 
-export async function getPathConfigs(): Promise<PathConfig[]> {
-  const data = await fetchAPI("/v3/config/paths/list")
-  return data.items || []
+export async function fetchMediaMtxApi<TResponse = unknown, TBody = unknown>(
+  endpoint: string,
+  options: MediaMtxRequestOptions<TBody> = {},
+): Promise<TResponse> {
+  const method = options.method || "GET"
+  const endpointWithQuery = withQuery(endpoint, options.query)
+  const authHeader = getAuthHeader()
+  const headers = new Headers(options.headers)
+
+  headers.set("Accept", "application/json")
+  if (authHeader) headers.set("Authorization", authHeader)
+
+  const init: RequestInit = {
+    method,
+    headers,
+    cache: "no-store",
+  }
+
+  if (options.body !== undefined) {
+    headers.set("Content-Type", "application/json")
+    init.body = JSON.stringify(options.body)
+  }
+
+  let response: Response
+  try {
+    response = await (options.fetchImpl || fetch)(buildMediaMtxApiUrl(endpointWithQuery, options.apiUrl), init)
+  } catch (cause) {
+    throw new MediaMtxApiError({ method, endpoint: endpointWithQuery, cause })
+  }
+
+  const parsedBody = await parseResponseBody(response, method, endpointWithQuery)
+
+  if (!response.ok) {
+    throw new MediaMtxApiError({
+      method,
+      endpoint: endpointWithQuery,
+      status: response.status,
+      statusText: response.statusText,
+      body: parsedBody as MediaMtxErrorBody | string | null,
+      rawBody: typeof parsedBody === "string" ? parsedBody : undefined,
+    })
+  }
+
+  return parsedBody as TResponse
 }
 
-export async function getPaths(): Promise<Path[]> {
-  const data = await fetchAPI("/v3/paths/list")
-  return data.items || []
+function listItems<T>(response: ListResponse<T> | null): T[] {
+  return response?.items || []
 }
 
-export async function addPath(config: PathConfig): Promise<void> {
-  // Only send the fields that MediaMTX expects
-  const payload: any = {
-    name: config.name,
-    source: config.source,
-  }
+export async function getGlobalConfig() {
+  return fetchMediaMtxApi<GlobalConf>("/v3/config/global/get")
+}
 
-  // Only add optional fields if they have non-default values
-  if (config.sourceFingerprint) {
-    payload.sourceFingerprint = config.sourceFingerprint
-  }
+export async function patchGlobalConfig(config: Partial<GlobalConf>) {
+  return fetchMediaMtxApi<null, Partial<GlobalConf>>("/v3/config/global/patch", { method: "PATCH", body: config })
+}
 
-  if (config.sourceOnDemand !== undefined) {
-    payload.sourceOnDemand = config.sourceOnDemand
-  }
+export async function getPathDefaults() {
+  return fetchMediaMtxApi<PathConf>("/v3/config/pathdefaults/get")
+}
 
-  if (config.sourceOnDemandStartTimeout) {
-    payload.sourceOnDemandStartTimeout = config.sourceOnDemandStartTimeout
-  }
+export async function patchPathDefaults(config: Partial<PathConf>) {
+  return fetchMediaMtxApi<null, Partial<PathConf>>("/v3/config/pathdefaults/patch", { method: "PATCH", body: config })
+}
 
-  if (config.sourceOnDemandCloseAfter) {
-    payload.sourceOnDemandCloseAfter = config.sourceOnDemandCloseAfter
-  }
+export async function getPathConfig(name: string) {
+  return fetchMediaMtxApi<PathConf>(`/v3/config/paths/get/${encodePathParam(name)}`)
+}
 
-  if (config.maxReaders !== undefined && config.maxReaders !== 0) {
-    payload.maxReaders = config.maxReaders
-  }
+export async function getPathConfigs(): Promise<PathConf[]> {
+  return listItems(await fetchMediaMtxApi<PathConfList>("/v3/config/paths/list"))
+}
 
-  if (config.record !== undefined) {
-    payload.record = config.record
-  }
-
-  if (config.record && config.recordPath) {
-    payload.recordPath = config.recordPath
-  }
-
-  if (config.record && config.recordFormat) {
-    payload.recordFormat = config.recordFormat
-  }
-
-  if (config.record && config.recordPartDuration) {
-    payload.recordPartDuration = config.recordPartDuration
-  }
-
-  if (config.record && config.recordSegmentDuration) {
-    payload.recordSegmentDuration = config.recordSegmentDuration
-  }
-
-  if (config.record && config.recordDeleteAfter) {
-    payload.recordDeleteAfter = config.recordDeleteAfter
-  }
-
-  if (config.overridePublisher !== undefined) {
-    payload.overridePublisher = config.overridePublisher
-  }
-
-  await fetchAPI(`/v3/config/paths/add/${encodeURIComponent(config.name)}`, {
+export async function addPath(config: PathConf): Promise<void> {
+  await fetchMediaMtxApi<null, PathConf>(`/v3/config/paths/add/${encodePathParam(config.name)}`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: config,
   })
 }
 
-export async function updatePath(name: string, config: Partial<PathConfig>): Promise<void> {
-  await fetchAPI(`/v3/config/paths/patch/${encodeURIComponent(name)}`, {
+export async function updatePath(name: string, config: Partial<PathConf>): Promise<void> {
+  await fetchMediaMtxApi<null, Partial<PathConf>>(`/v3/config/paths/patch/${encodePathParam(name)}`, {
     method: "PATCH",
-    body: JSON.stringify(config),
+    body: config,
+  })
+}
+
+export async function replacePath(name: string, config: PathConf): Promise<void> {
+  await fetchMediaMtxApi<null, PathConf>(`/v3/config/paths/replace/${encodePathParam(name)}`, {
+    method: "POST",
+    body: config,
   })
 }
 
 export async function deletePath(name: string): Promise<void> {
-  await fetchAPI(`/v3/config/paths/delete/${encodeURIComponent(name)}`, {
-    method: "DELETE",
-  })
+  await fetchMediaMtxApi<null>(`/v3/config/paths/delete/${encodePathParam(name)}`, { method: "DELETE" })
 }
 
+export async function getPaths(): Promise<Path[]> {
+  return listItems(await fetchMediaMtxApi<PathList>("/v3/paths/list"))
+}
+
+export async function getPath(name: string) {
+  return fetchMediaMtxApi<Path>(`/v3/paths/get/${encodePathParam(name)}`)
+}
+
+export async function getHlsMuxers(): Promise<HLSMuxer[]> {
+  return listItems(await fetchMediaMtxApi<HLSMuxerList>("/v3/hlsmuxers/list"))
+}
+
+export async function getHlsMuxer(name: string) {
+  return fetchMediaMtxApi<HLSMuxer>(`/v3/hlsmuxers/get/${encodePathParam(name)}`)
+}
+
+function createProtocolClient<TItem extends ProtocolResource>(basePath: string) {
+  return {
+    list: async () => listItems(await fetchMediaMtxApi<ListResponse<TItem>>(`${basePath}/list`)),
+    get: (id: string) => fetchMediaMtxApi<TItem>(`${basePath}/get/${encodePathParam(id)}`),
+    kick: (id: string) => fetchMediaMtxApi<null>(`${basePath}/kick/${encodePathParam(id)}`, { method: "POST" }),
+  }
+}
+
+function createReadOnlyProtocolClient<TItem extends ProtocolResource>(basePath: string) {
+  return {
+    list: async () => listItems(await fetchMediaMtxApi<ListResponse<TItem>>(`${basePath}/list`)),
+    get: (id: string) => fetchMediaMtxApi<TItem>(`${basePath}/get/${encodePathParam(id)}`),
+  }
+}
+
+export const rtspConnections = createReadOnlyProtocolClient<RTSPConn>("/v3/rtspconns")
+export const rtspSessions = createProtocolClient<RTSPSession>("/v3/rtspsessions")
+export const rtspsConnections = createReadOnlyProtocolClient<RTSPConn>("/v3/rtspsconns")
+export const rtspsSessions = createProtocolClient<RTSPSession>("/v3/rtspssessions")
+export const rtmpConnections = createProtocolClient<RTMPConn>("/v3/rtmpconns")
+export const rtmpsConnections = createProtocolClient<RTMPConn>("/v3/rtmpsconns")
+export const srtConnections = createProtocolClient<SRTConn>("/v3/srtconns")
+export const webrtcSessions = createProtocolClient<WebRTCSession>("/v3/webrtcsessions")
+
+export async function getRecordings(): Promise<Recording[]> {
+  return listItems(await fetchMediaMtxApi<RecordingList>("/v3/recordings/list"))
+}
+
+export async function getRecording(name: string) {
+  return fetchMediaMtxApi<Recording>(`/v3/recordings/get/${encodePathParam(name)}`)
+}
+
+export async function deleteRecordingSegment(params: DeleteRecordingSegmentParams) {
+  return fetchMediaMtxApi<null>("/v3/recordings/deletesegment", { method: "DELETE", query: params })
+}
+
+export async function refreshJwks() {
+  return fetchMediaMtxApi<null>("/v3/auth/jwks/refresh", { method: "POST" })
+}

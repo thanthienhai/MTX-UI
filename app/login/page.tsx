@@ -6,13 +6,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Radio, AlertCircle } from "lucide-react"
-import { buildMediaMtxApiUrl } from "@/lib/mediamtx-url.mjs"
+import {
+  DashboardLoginError,
+  setDashboardSession,
+  validateMediaMtxLogin,
+  type DashboardCredentialMode,
+} from "@/lib/auth"
 
 export default function LoginPage() {
   const router = useRouter()
+  const [credentialMode, setCredentialMode] = useState<DashboardCredentialMode>("basic")
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [token, setToken] = useState("")
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
@@ -22,28 +30,20 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      // Store credentials in sessionStorage
-      const credentials = btoa(`${username}:${password}`)
-
-      // Test the credentials by making a request to MediaMTX API
-      const response = await fetch(buildMediaMtxApiUrl("/v3/config/global/get"), {
-        headers: {
-          Authorization: `Basic ${credentials}`,
-        },
+      const { session } = await validateMediaMtxLogin({
+        credentialMode,
+        username,
+        password,
+        token,
       })
-
-      if (response.ok) {
-        // Store credentials in sessionStorage
-        sessionStorage.setItem("mediamtx_auth", credentials)
-        sessionStorage.setItem("mediamtx_username", username)
-
-        // Redirect to dashboard
-        router.push("/")
-      } else {
-        setError("Invalid username or password")
-      }
+      setDashboardSession(session)
+      router.push("/")
     } catch (err) {
-      setError("Failed to connect to MediaMTX server")
+      setError(
+        err instanceof DashboardLoginError
+          ? err.userMessage
+          : "Failed to connect to MediaMTX or validate the provided credentials.",
+      )
       console.error("Login error:", err)
     } finally {
       setIsLoading(false)
@@ -63,6 +63,19 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
+              <Label htmlFor="credentialMode">Credential type</Label>
+              <Select value={credentialMode} onValueChange={(value) => setCredentialMode(value as DashboardCredentialMode)}>
+                <SelectTrigger id="credentialMode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="basic">Basic Auth</SelectItem>
+                  <SelectItem value="bearer">Token / JWT</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
@@ -70,22 +83,39 @@ export default function LoginPage() {
                 placeholder="admin"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                required
+                required={credentialMode === "basic"}
+                disabled={credentialMode === "bearer"}
                 autoComplete="username"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
-            </div>
+
+            {credentialMode === "basic" ? (
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="token">Token / JWT</Label>
+                <Input
+                  id="token"
+                  type="password"
+                  placeholder="Paste bearer token"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+            )}
 
             {error && (
               <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-md">
@@ -105,6 +135,7 @@ export default function LoginPage() {
               Username: <span className="font-semibold">admin</span> | Password:{" "}
               <span className="font-semibold">adminpass</span>
             </p>
+            <p className="mt-2 text-xs">Token/JWT mode sends the credential as a bearer token.</p>
           </div>
         </CardContent>
       </Card>

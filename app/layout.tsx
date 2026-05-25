@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import './globals.css'
+import { NotificationProvider } from '@/components/notification-provider'
 
 export const metadata: Metadata = {
   title: 'MediaMTX Dashboard',
@@ -25,7 +26,9 @@ html {
 }
         `}</style>
       </head>
-      <body>{children}</body>
+      <body>
+        <NotificationProvider>{children}</NotificationProvider>
+      </body>
     </html>
   )
 }

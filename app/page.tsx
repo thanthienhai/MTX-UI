@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -41,16 +41,38 @@ import {
   VideoIcon,
   ArrowDownToLine,
   ArrowUpFromLine,
+  Settings,
 } from "lucide-react"
 import { ProtectedRoute } from "@/components/protected-route"
-import { clearAuth, getUsername } from "@/lib/auth"
+import { clearAuth, getDashboardSession, getSessionPermissions, getUsername } from "@/lib/auth"
 import { StreamPlayer } from "@/components/stream-player"
+import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
+import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
-import type { PathConfig, Path as LivePath } from "@/lib/mediamtx-api"
+import type { DashboardAuditEvent } from "@/lib/dashboard-audit"
+import { createAuditEvent, loadAuditEvents, saveAuditEvents } from "@/lib/dashboard-audit"
+import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
+import {
+  buildMediaMtxMetricsUrl,
+  buildMediaMtxPlaybackUrl,
+  buildMediaMtxPprofUrl,
+  normalizeMediaMtxApiBaseUrl,
+  normalizeMediaMtxHlsBaseUrl,
+} from "@/lib/mediamtx-url.mjs"
+import { useRefreshPolling } from "@/hooks/use-refresh-polling"
+import { GlobalConfigView } from "@/components/global-config-view"
+import type { GlobalConf, HLSMuxer, PathConfig, Path as LivePath, Recording } from "@/lib/mediamtx-api"
+import {
+  buildDashboardOverview,
+  calculateBitrate,
+  formatBitsPerSecond,
+  getTrafficTotals,
+} from "@/lib/dashboard-overview.mjs"
 
 function MediaMTXDashboard() {
   const router = useRouter()
   const username = getUsername()
+  const { notify } = useNotifications()
 
   const [config, setConfig] = useState({
     logLevel: "info",
@@ -71,6 +93,28 @@ function MediaMTXDashboard() {
   const [paths, setPaths] = useState<PathConfig[]>([])
   const [livePaths, setLivePaths] = useState<LivePath[]>([])
   const [isLoadingPaths, setIsLoadingPaths] = useState(false)
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
+  const [globalConfig, setGlobalConfig] = useState<GlobalConf | null>(null)
+  const [pathDefaults, setPathDefaults] = useState<PathConfig | null>(null)
+  const [hlsMuxers, setHlsMuxers] = useState<HLSMuxer[]>([])
+  const [recordings, setRecordings] = useState<Recording[]>([])
+  const [protocolCounts, setProtocolCounts] = useState<Record<string, number>>({})
+  const [auditEvents, setAuditEvents] = useState<DashboardAuditEvent[]>([])
+  const [permissions, setPermissions] = useState<MediaMtxPermissionSet>(() => getSessionPermissions())
+  const [apiLatencyMs, setApiLatencyMs] = useState<number | null>(null)
+  const [metricsStatus, setMetricsStatus] = useState<{
+    status: "healthy" | "degraded" | "disabled" | "unknown"
+    latencyMs?: number
+    checkedAt?: string
+    message?: string
+  }>({ status: "unknown" })
+  const [lastConfigUpdateAt, setLastConfigUpdateAt] = useState<string | null>(null)
+  const [bitrate, setBitrate] = useState<{ inboundBps: number | null; outboundBps: number | null }>({
+    inboundBps: null,
+    outboundBps: null,
+  })
+  const [isPollingEnabled, setIsPollingEnabled] = useState(true)
+  const [pollingIntervalMs, setPollingIntervalMs] = useState(10000)
   const [selectedStreamPath, setSelectedStreamPath] = useState<string | null>(null)
   const [editingPath, setEditingPath] = useState<PathConfig | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -94,26 +138,113 @@ function MediaMTXDashboard() {
     overridePublisher: true,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const previousTrafficSampleRef = useRef<{ timestamp: number; bytesReceived: number; bytesSent: number } | null>(null)
 
-  const fetchPaths = async () => {
+  useEffect(() => {
+    const events = loadAuditEvents()
+    setAuditEvents(events)
+    setPermissions(getSessionPermissions(getDashboardSession()))
+  }, [])
+
+  const appendAuditEvent = useCallback((event: Omit<DashboardAuditEvent, "id" | "timestamp">) => {
+    setAuditEvents((current) => {
+      const next = [createAuditEvent(event), ...current].slice(0, 100)
+      saveAuditEvents(next)
+      return next
+    })
+  }, [])
+
+  const notifyError = useCallback(
+    (title: string, error: unknown) => {
+      notify({ type: "error", title, message: api.getMediaMtxErrorMessage(error) })
+    },
+    [notify],
+  )
+
+  const fetchPaths = useCallback(async () => {
     setIsLoadingPaths(true)
+    setDashboardError(null)
+    const startedAt = performance.now()
     try {
-      const [configs, live] = await Promise.all([api.getPathConfigs(), api.getPaths()])
+      const [configs, live, global, defaults, muxers, recordingList, ...protocolLists] = await Promise.all([
+        api.getPathConfigs(),
+        api.getPaths(),
+        api.getGlobalConfig(),
+        api.getPathDefaults(),
+        api.getHlsMuxers(),
+        api.getRecordings(),
+        api.rtspConnections.list(),
+        api.rtspSessions.list(),
+        api.rtspsConnections.list(),
+        api.rtspsSessions.list(),
+        api.rtmpConnections.list(),
+        api.rtmpsConnections.list(),
+        api.srtConnections.list(),
+        api.webrtcSessions.list(),
+      ])
       setPaths(configs.filter((p) => p.name !== "all_others"))
       setLivePaths(live)
+      setGlobalConfig(global)
+      setPathDefaults(defaults)
+      setHlsMuxers(muxers)
+      setRecordings(recordingList)
+      setApiLatencyMs(Math.round(performance.now() - startedAt))
+      setLastConfigUpdateAt(new Date().toISOString())
+      setProtocolCounts({
+        rtspConnections: protocolLists[0]?.length || 0,
+        rtspSessions: protocolLists[1]?.length || 0,
+        rtspsConnections: protocolLists[2]?.length || 0,
+        rtspsSessions: protocolLists[3]?.length || 0,
+        rtmpConnections: protocolLists[4]?.length || 0,
+        rtmpsConnections: protocolLists[5]?.length || 0,
+        srtConnections: protocolLists[6]?.length || 0,
+        webrtcSessions: protocolLists[7]?.length || 0,
+      })
+      const trafficTotals = getTrafficTotals(live, muxers, protocolLists)
+      const currentSample = { timestamp: Date.now(), ...trafficTotals }
+      const nextBitrate = calculateBitrate(previousTrafficSampleRef.current, currentSample)
+      setBitrate({ inboundBps: nextBitrate.inboundBps, outboundBps: nextBitrate.outboundBps })
+      previousTrafficSampleRef.current = currentSample
+
+      if (permissions.metrics === false || global.metrics === false) {
+        setMetricsStatus({ status: "disabled", checkedAt: new Date().toISOString() })
+      } else {
+        const metricsStartedAt = performance.now()
+        try {
+          const response = await fetch(buildMediaMtxMetricsUrl(), { cache: "no-store" })
+          setMetricsStatus({
+            status: response.ok ? "healthy" : "degraded",
+            latencyMs: Math.round(performance.now() - metricsStartedAt),
+            checkedAt: new Date().toISOString(),
+            message: response.ok ? undefined : `Metrics returned ${response.status}`,
+          })
+        } catch (error) {
+          setMetricsStatus({
+            status: "degraded",
+            checkedAt: new Date().toISOString(),
+            message: error instanceof Error ? error.message : "Metrics scrape failed",
+          })
+        }
+      }
     } catch (error) {
       console.error("Error fetching paths:", error)
-      alert("Failed to load paths")
+      const message = api.getMediaMtxErrorMessage(error)
+      setDashboardError(message)
+      notify({ type: "error", title: "Failed to load MediaMTX data", message })
     } finally {
       setIsLoadingPaths(false)
     }
-  }
+  }, [notify, permissions.metrics])
+
+  const polling = useRefreshPolling({
+    enabled: isPollingEnabled,
+    intervalMs: pollingIntervalMs,
+    refresh: fetchPaths,
+  })
 
   useEffect(() => {
     fetchPaths()
-    const interval = setInterval(fetchPaths, 10000) // Refresh every 10 seconds
-    return () => clearInterval(interval)
-  }, [])
+  }, [fetchPaths])
 
   const handleEditPath = async (path: PathConfig) => {
     setEditingPath(path)
@@ -125,14 +256,30 @@ function MediaMTXDashboard() {
 
     setIsSubmitting(true)
     try {
+      requireMediaMtxAction(permissions, "api")
       await api.updatePath(editingPath.name, editingPath)
       await fetchPaths()
       setIsEditDialogOpen(false)
       setEditingPath(null)
-      alert("Path updated successfully!")
+      notify({ type: "success", title: "Path updated", message: editingPath.name })
+      appendAuditEvent({
+        actor: username,
+        action: "path.update",
+        target: editingPath.name,
+        payloadSummary: JSON.stringify({ source: editingPath.source, record: editingPath.record }),
+        result: "success",
+      })
     } catch (error) {
       console.error("Error updating path:", error)
-      alert(`Failed to update path: ${error instanceof Error ? error.message : "Unknown error"}`)
+      notifyError("Failed to update path", error)
+      appendAuditEvent({
+        actor: username,
+        action: "path.update",
+        target: editingPath.name,
+        payloadSummary: JSON.stringify({ source: editingPath.source, record: editingPath.record }),
+        result: "failure",
+        errorSummary: api.getMediaMtxErrorMessage(error),
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -143,14 +290,28 @@ function MediaMTXDashboard() {
 
     setIsSubmitting(true)
     try {
+      requireMediaMtxAction(permissions, "api")
       await api.deletePath(pathToDelete)
       await fetchPaths()
       setIsDeleteDialogOpen(false)
       setPathToDelete(null)
-      alert("Path deleted successfully!")
+      notify({ type: "success", title: "Path deleted", message: pathToDelete })
+      appendAuditEvent({
+        actor: username,
+        action: "path.delete",
+        target: pathToDelete,
+        result: "success",
+      })
     } catch (error) {
       console.error("Error deleting path:", error)
-      alert(`Failed to delete path: ${error instanceof Error ? error.message : "Unknown error"}`)
+      notifyError("Failed to delete path", error)
+      appendAuditEvent({
+        actor: username,
+        action: "path.delete",
+        target: pathToDelete,
+        result: "failure",
+        errorSummary: api.getMediaMtxErrorMessage(error),
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -179,18 +340,20 @@ function MediaMTXDashboard() {
 
   const handleAddPath = async () => {
     if (!newPath.name) {
-      alert("Please enter a path name")
+      notify({ type: "error", title: "Path name is required" })
       return
     }
 
     if (!newPath.source) {
-      alert("Please enter a source URL")
+      notify({ type: "error", title: "Source URL is required" })
       return
     }
 
     setIsSubmitting(true)
 
     try {
+      requireMediaMtxAction(permissions, "api")
+      requireMediaMtxAction(permissions, "publish")
       await api.addPath(newPath as PathConfig)
       await fetchPaths()
 
@@ -210,23 +373,119 @@ function MediaMTXDashboard() {
         overridePublisher: true,
       })
       setIsAddPathDialogOpen(false)
-      alert("Path added successfully!")
+      notify({ type: "success", title: "Path added", message: newPath.name })
+      appendAuditEvent({
+        actor: username,
+        action: "path.add",
+        target: newPath.name,
+        payloadSummary: JSON.stringify({ source: newPath.source, record: newPath.record }),
+        result: "success",
+      })
     } catch (error) {
       console.error("Error adding path:", error)
-      alert(`Error adding path: ${error instanceof Error ? error.message : "Unknown error"}`)
+      notifyError("Failed to add path", error)
+      appendAuditEvent({
+        actor: username,
+        action: "path.add",
+        target: newPath.name,
+        payloadSummary: JSON.stringify({ source: newPath.source, record: newPath.record }),
+        result: "failure",
+        errorSummary: api.getMediaMtxErrorMessage(error),
+      })
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  // Replace the activeStreams useState with calculated values
-  const activeStreamsCount = livePaths.filter((p) => p.ready).length
-  const totalViewers = livePaths.reduce((sum, p) => sum + p.readers.length, 0)
-  const totalBytesReceived = livePaths.reduce((sum, p) => sum + (p.bytesReceived || 0), 0)
-  const totalBytesSent = livePaths.reduce((sum, p) => sum + (p.bytesSent || 0), 0)
-  const idleStreamsCount = Math.max(paths.length - activeStreamsCount, 0)
+  const handleRefreshJwks = async () => {
+    try {
+      requireMediaMtxAction(permissions, "api")
+      await api.refreshJwks()
+      notify({ type: "success", title: "JWKS refreshed" })
+      appendAuditEvent({ actor: username, action: "auth.jwks.refresh", target: "jwks", result: "success" })
+    } catch (error) {
+      notifyError("Failed to refresh JWKS", error)
+      appendAuditEvent({
+        actor: username,
+        action: "auth.jwks.refresh",
+        target: "jwks",
+        result: "failure",
+        errorSummary: api.getMediaMtxErrorMessage(error),
+      })
+    }
+  }
+
+  const handleDeleteRecordingSegment = async (path: string, start: string) => {
+    try {
+      requireMediaMtxAction(permissions, "api")
+      requireMediaMtxAction(permissions, "read")
+      await api.deleteRecordingSegment({ path, start })
+      await fetchPaths()
+      notify({ type: "success", title: "Recording segment deleted", message: path })
+      appendAuditEvent({
+        actor: username,
+        action: "recording.segment.delete",
+        target: path,
+        payloadSummary: JSON.stringify({ start }),
+        result: "success",
+      })
+    } catch (error) {
+      notifyError("Failed to delete recording segment", error)
+      appendAuditEvent({
+        actor: username,
+        action: "recording.segment.delete",
+        target: path,
+        payloadSummary: JSON.stringify({ start }),
+        result: "failure",
+        errorSummary: api.getMediaMtxErrorMessage(error),
+      })
+    }
+  }
+
+  const overview = useMemo(
+    () =>
+      buildDashboardOverview({
+        paths,
+        livePaths,
+        globalConfig,
+        hlsMuxers,
+        protocolCounts,
+        permissions,
+        localConfig: config,
+        apiLatencyMs,
+        metricsStatus,
+        lastConfigUpdateAt,
+        bitrate,
+      }),
+    [
+      paths,
+      livePaths,
+      globalConfig,
+      hlsMuxers,
+      protocolCounts,
+      permissions,
+      config,
+      apiLatencyMs,
+      metricsStatus,
+      lastConfigUpdateAt,
+      bitrate,
+    ],
+  )
+  const activeStreamsCount = overview.streams.readyPaths
+  const totalViewers = overview.streams.totalReaders
+  const totalBytesReceived = overview.streams.trafficTotals.bytesReceived
+  const totalBytesSent = overview.streams.trafficTotals.bytesSent
+  const idleStreamsCount = overview.streams.idlePaths
+  const canUseApi = permissions.api !== false
+  const canUseMetrics = permissions.metrics !== false
+  const canUsePprof = permissions.pprof !== false
+  const canPlayback = permissions.playback !== false
+  const canPublish = permissions.publish !== false
+  const canRead = permissions.read !== false
+  const pollingSeconds = Math.round(pollingIntervalMs / 1000)
 
   const formatMegabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(2)} MB`
+  const formatStatus = (status: string) => status.charAt(0).toUpperCase() + status.slice(1)
 
   const metricCards = [
     {
@@ -249,10 +508,55 @@ function MediaMTXDashboard() {
     },
     {
       title: "Server Status",
-      value: "Online",
-      description: "Polling every 10 seconds",
+      value: dashboardError ? "Error" : "Online",
+      description: isPollingEnabled ? `Polling every ${pollingSeconds} seconds` : "Polling paused",
       icon: Activity,
-      valueClassName: "text-[#05b169]",
+      valueClassName: dashboardError ? "text-[#cf202f]" : "text-[#05b169]",
+    },
+  ]
+
+  const serviceCards = [
+    ["API", overview.serviceStatus.api],
+    ["Metrics", overview.serviceStatus.metrics],
+    ["pprof", overview.serviceStatus.pprof],
+    ["Playback", overview.serviceStatus.playback],
+    ["RTSP", overview.serviceStatus.rtsp],
+    ["RTMP", overview.serviceStatus.rtmp],
+    ["HLS", overview.serviceStatus.hls],
+    ["WebRTC", overview.serviceStatus.webrtc],
+    ["SRT", overview.serviceStatus.srt],
+  ] as const
+
+  const protocolReaderCards = [
+    ["RTSP", overview.streams.protocolSummary.rtsp],
+    ["RTMP", overview.streams.protocolSummary.rtmp],
+    ["HLS", overview.streams.protocolSummary.hls],
+    ["WebRTC", overview.streams.protocolSummary.webrtc],
+    ["SRT", overview.streams.protocolSummary.srt],
+  ] as const
+
+  const healthCards = [
+    {
+      title: "API latency",
+      value: overview.health.apiLatencyMs === null ? "n/a" : `${overview.health.apiLatencyMs} ms`,
+      description: dashboardError ? "Control API degraded" : "Latest overview refresh",
+    },
+    {
+      title: "Metrics scrape",
+      value: formatStatus(overview.health.metricsStatus.status),
+      description: overview.health.metricsStatus.message || overview.health.metricsStatus.checkedAt || "Not checked",
+    },
+    {
+      title: "Last config update",
+      value: overview.health.lastConfigUpdateAt
+        ? new Date(overview.health.lastConfigUpdateAt).toLocaleTimeString()
+        : "n/a",
+      description: "Latest backend config snapshot",
+    },
+    {
+      title: "Config sync",
+      value: overview.health.configMismatch ? "Warning" : "Synced",
+      description: overview.health.configMismatch ? "UI values differ from backend" : "UI and backend match",
     },
   ]
 
@@ -308,11 +612,19 @@ function MediaMTXDashboard() {
               variant="outline"
               className="rounded-full"
               onClick={() => setSelectedStreamPath(selectedStreamPath === path.name ? null : path.name)}
+              disabled={!canPlayback}
               title="Preview stream"
             >
               <Eye className="h-4 w-4" />
             </Button>
-            <Button size="icon" variant="outline" className="rounded-full" onClick={() => handleEditPath(path)} title="Edit path">
+            <Button
+              size="icon"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => handleEditPath(path)}
+              disabled={!canUseApi}
+              title="Edit path"
+            >
               <Edit className="h-4 w-4" />
             </Button>
             <Button
@@ -320,13 +632,14 @@ function MediaMTXDashboard() {
               variant="outline"
               className="rounded-full text-[#cf202f] hover:text-[#cf202f]"
               onClick={() => confirmDelete(path.name)}
+              disabled={!canUseApi}
               title="Delete path"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         </div>
-        {selectedStreamPath === path.name && status.isLive && (
+        {selectedStreamPath === path.name && status.isLive && canPlayback && (
           <div className="border-t border-[#eef0f3] px-4 pb-4 pt-4">
             <StreamPlayer pathName={path.name} />
           </div>
@@ -403,6 +716,7 @@ function MediaMTXDashboard() {
                   <Button
                     className="h-11 rounded-full bg-[#0052ff] px-5 text-white hover:bg-[#003ecc]"
                     onClick={() => setIsAddPathDialogOpen(true)}
+                    disabled={!canUseApi || !canPublish}
                   >
                     <Plus className="h-4 w-4" />
                     Add Path
@@ -410,7 +724,7 @@ function MediaMTXDashboard() {
                   <Button
                     variant="secondary"
                     className="h-11 rounded-full bg-[#16181c] px-5 text-white hover:bg-[#23262d]"
-                    onClick={fetchPaths}
+                    onClick={() => polling.refresh().catch(() => undefined)}
                   >
                     <RefreshCw className="h-4 w-4" />
                     Refresh
@@ -424,7 +738,9 @@ function MediaMTXDashboard() {
                     <p className="text-sm text-[#a8acb3]">Traffic summary</p>
                     <p className="mt-1 font-mono text-2xl font-medium text-white">{formatMegabytes(totalBytesSent)}</p>
                   </div>
-                  <Badge className="rounded-full bg-[#0052ff] text-white hover:bg-[#0052ff]">10s refresh</Badge>
+                  <Badge className="rounded-full bg-[#0052ff] text-white hover:bg-[#0052ff]">
+                    {isPollingEnabled ? `${pollingSeconds}s refresh` : "manual refresh"}
+                  </Badge>
                 </div>
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -458,7 +774,7 @@ function MediaMTXDashboard() {
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Tabs defaultValue="overview" className="space-y-8">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-3 lg:grid-cols-6">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-4 lg:grid-cols-7">
             <TabsTrigger value="overview" className="rounded-full py-2 data-[state=active]:bg-white">
               <Monitor className="w-4 h-4" />
               <span>Overview</span>
@@ -470,6 +786,10 @@ function MediaMTXDashboard() {
             <TabsTrigger value="paths" className="rounded-full py-2 data-[state=active]:bg-white">
               <Video className="w-4 h-4" />
               <span>Paths</span>
+            </TabsTrigger>
+            <TabsTrigger value="config" className="rounded-full py-2 data-[state=active]:bg-white">
+              <Settings className="w-4 h-4" />
+              <span>Configuration</span>
             </TabsTrigger>
             <TabsTrigger value="auth" className="rounded-full py-2 data-[state=active]:bg-white">
               <Shield className="w-4 h-4" />
@@ -510,23 +830,142 @@ function MediaMTXDashboard() {
 
             <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader>
+                <CardTitle>Server Service Status</CardTitle>
+                <CardDescription>Live capability status from MediaMTX config, service URLs, and permissions</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingPaths ? (
+                  <LoadingState label="Loading service status..." />
+                ) : dashboardError ? (
+                  <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {serviceCards.map(([name, status]) => (
+                      <div key={name} className="flex items-center justify-between rounded-lg border p-3">
+                        <span className="font-medium">{name}</span>
+                        <Badge
+                          variant={status === "enabled" ? "default" : "secondary"}
+                          className={status === "unknown" ? "bg-amber-100 text-amber-800 hover:bg-amber-100" : undefined}
+                        >
+                          {formatStatus(status)}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+                <CardHeader>
+                  <CardTitle>Stream Summary</CardTitle>
+                  <CardDescription>Path, protocol, byte, and bitrate totals from runtime data</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Configured paths</p>
+                      <p className="font-mono text-2xl">{overview.streams.configuredPaths}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Ready/live paths</p>
+                      <p className="font-mono text-2xl">{overview.streams.readyPaths}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Inbound total</p>
+                      <p className="font-mono text-lg">{formatMegabytes(totalBytesReceived)}</p>
+                      <p className="text-xs text-muted-foreground">{formatBitsPerSecond(overview.streams.bitrate.inboundBps)}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Outbound total</p>
+                      <p className="font-mono text-lg">{formatMegabytes(totalBytesSent)}</p>
+                      <p className="text-xs text-muted-foreground">{formatBitsPerSecond(overview.streams.bitrate.outboundBps)}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    {protocolReaderCards.map(([name, count]) => (
+                      <div key={name} className="rounded-lg border p-2 text-center">
+                        <p className="font-mono text-xl">{count}</p>
+                        <p className="text-xs text-muted-foreground">{name}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+                <CardHeader>
+                  <CardTitle>Health</CardTitle>
+                  <CardDescription>Operational checks that do not block unrelated dashboard data</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-2">
+                  {healthCards.map((card) => (
+                    <div key={card.title} className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">{card.title}</p>
+                      <p className="mt-1 font-mono text-lg">{card.value}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{card.description}</p>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+                <CardDescription>Permission-aware shortcuts for common dashboard operations</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-3">
+                  <Button onClick={() => setIsAddPathDialogOpen(true)} disabled={!canUseApi || !canPublish}>
+                  <Plus className="h-4 w-4" />
+                  Add path
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={!canPlayback || !selectedStreamPath}
+                  onClick={() => window.open(buildMediaMtxPlaybackUrl(selectedStreamPath || "stream"), "_blank", "noreferrer")}
+                >
+                  <Play className="h-4 w-4" />
+                  Open playback
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={!canUseMetrics || overview.serviceStatus.metrics !== "enabled"}
+                  onClick={() => window.open(buildMediaMtxMetricsUrl(), "_blank", "noreferrer")}
+                >
+                  <Activity className="h-4 w-4" />
+                  Open metrics
+                </Button>
+                <Button variant="secondary" onClick={() => polling.refresh().catch(() => undefined)}>
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh data
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+              <CardHeader>
                 <CardTitle>Active Streams</CardTitle>
                 <CardDescription>Currently active streaming paths and their status</CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingPaths ? (
-                  <div className="text-center py-8">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-2"></div>
-                    <p className="text-sm text-gray-600">Loading streams...</p>
-                  </div>
+                  <LoadingState label="Loading streams..." />
+                ) : dashboardError ? (
+                  <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
+                ) : !canRead ? (
+                  <EmptyState title="Read permission disabled" />
                 ) : paths.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <VideoIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No paths configured</p>
-                    <Button className="mt-4" onClick={() => setIsAddPathDialogOpen(true)}>
-                      Add Your First Path
-                    </Button>
-                  </div>
+                  <EmptyState
+                    icon={<VideoIcon className="h-12 w-12 opacity-50" />}
+                    title="No paths configured"
+                    action={
+                      canUseApi && canPublish ? (
+                        <Button onClick={() => setIsAddPathDialogOpen(true)}>Add Your First Path</Button>
+                      ) : null
+                    }
+                  />
                 ) : (
                   <div className="space-y-4">
                     {paths.map(renderStreamRow)}
@@ -726,6 +1165,44 @@ function MediaMTXDashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Control API Snapshot</CardTitle>
+                <CardDescription>Global configuration and path defaults loaded from MediaMTX</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingPaths ? (
+                  <LoadingState label="Loading configuration..." />
+                ) : dashboardError ? (
+                  <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm font-medium">Global config</p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Log level: {String(globalConfig?.logLevel || config.logLevel)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        API: {String(globalConfig?.api ?? config.api)} at {String(globalConfig?.apiAddress || config.apiAddress)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Metrics: {String(globalConfig?.metrics ?? config.metrics)} at{" "}
+                        {String(globalConfig?.metricsAddress || config.metricsAddress)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm font-medium">Path defaults</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Source: {pathDefaults?.source || "publisher"}</p>
+                      <p className="text-sm text-muted-foreground">Recording: {String(pathDefaults?.record || false)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Max readers: {pathDefaults?.maxReaders ?? "unlimited"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="paths" className="space-y-6">
@@ -738,7 +1215,7 @@ function MediaMTXDashboard() {
                   </div>
                   <Dialog open={isAddPathDialogOpen} onOpenChange={setIsAddPathDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button className="rounded-full bg-[#0052ff] hover:bg-[#003ecc]">
+                      <Button className="rounded-full bg-[#0052ff] hover:bg-[#003ecc]" disabled={!canUseApi}>
                         <Plus className="w-4 h-4 mr-2" />
                         Add Path
                       </Button>
@@ -896,7 +1373,7 @@ function MediaMTXDashboard() {
                         <Button variant="outline" onClick={() => setIsAddPathDialogOpen(false)} disabled={isSubmitting}>
                           Cancel
                         </Button>
-                        <Button onClick={handleAddPath} disabled={isSubmitting}>
+                        <Button onClick={handleAddPath} disabled={isSubmitting || !canUseApi || !canPublish}>
                           {isSubmitting ? "Adding..." : "Add Path"}
                         </Button>
                       </DialogFooter>
@@ -907,18 +1384,21 @@ function MediaMTXDashboard() {
               <CardContent>
                 <div className="space-y-4">
                   {isLoadingPaths ? (
-                    <div className="text-center py-8">
-                      <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-2"></div>
-                      <p className="text-sm text-gray-600">Loading paths...</p>
-                    </div>
+                    <LoadingState label="Loading paths..." />
+                  ) : dashboardError ? (
+                    <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
+                  ) : !canRead ? (
+                    <EmptyState title="Read permission disabled" />
                   ) : paths.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <VideoIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p>No paths configured</p>
-                      <Button className="mt-4" onClick={() => setIsAddPathDialogOpen(true)}>
-                        Add Your First Path
-                      </Button>
-                    </div>
+                    <EmptyState
+                      icon={<VideoIcon className="h-12 w-12 opacity-50" />}
+                      title="No paths configured"
+                      action={
+                        canUseApi && canPublish ? (
+                          <Button onClick={() => setIsAddPathDialogOpen(true)}>Add Your First Path</Button>
+                        ) : null
+                      }
+                    />
                   ) : (
                     paths.map(renderStreamRow)
                   )}
@@ -927,11 +1407,44 @@ function MediaMTXDashboard() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="config" className="space-y-6">
+            <GlobalConfigView
+              permissions={permissions}
+              username={username}
+              appendAuditEvent={appendAuditEvent}
+            />
+          </TabsContent>
+
           <TabsContent value="auth" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Authentication Method</CardTitle>
-                <CardDescription>Configure how users authenticate with the server</CardDescription>
+                <CardTitle>Current Session Permissions</CardTitle>
+                <CardDescription>Effective MediaMTX action categories resolved for this dashboard session</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                {(["api", "metrics", "pprof", "publish", "read", "playback"] as const).map((action) => (
+                  <div key={action} className="flex items-center justify-between rounded-lg border p-3">
+                    <Label className="font-mono text-sm">{action}</Label>
+                    <Badge variant={permissions[action] !== false ? "default" : "secondary"}>
+                      {permissions[action] !== false ? "Granted" : "Unavailable"}
+                    </Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle>Authentication Method</CardTitle>
+                    <CardDescription>Configure how users authenticate with the server</CardDescription>
+                  </div>
+                  <Button variant="outline" onClick={handleRefreshJwks} disabled={!canUseApi}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Refresh JWKS
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -957,7 +1470,7 @@ function MediaMTXDashboard() {
                     <CardTitle>Internal Users</CardTitle>
                     <CardDescription>Manage users stored in configuration</CardDescription>
                   </div>
-                  <Button>
+                  <Button disabled={!canUseApi}>
                     <Plus className="w-4 h-4 mr-2" />
                     Add User
                   </Button>
@@ -1078,48 +1591,163 @@ function MediaMTXDashboard() {
                 <CardDescription>Current recording sessions</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center justify-center w-10 h-10 bg-red-100 rounded-lg">
-                        <Play className="w-5 h-5 text-red-600" />
+                {isLoadingPaths ? (
+                  <LoadingState label="Loading recordings..." />
+                ) : dashboardError ? (
+                  <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
+                ) : recordings.length === 0 ? (
+                  <EmptyState icon={<Play className="h-12 w-12 opacity-50" />} title="No recordings available" />
+                ) : (
+                  <div className="space-y-4">
+                    {recordings.map((recording) => {
+                      const firstSegmentStart = recording.segments?.[0]?.start
+                      return (
+                      <div key={recording.name} className="flex items-center justify-between rounded-lg border p-4">
+                        <div className="flex items-center space-x-4">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-100">
+                            <Play className="h-5 w-5 text-red-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-medium">{recording.name}</h3>
+                            <p className="text-sm text-gray-500">{recording.segments?.length || 0} segments</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">Recorded</Badge>
+                          {firstSegmentStart && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!canUseApi || !canRead}
+                              onClick={() => handleDeleteRecordingSegment(recording.name, firstSegmentStart)}
+                            >
+                              Delete first segment
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="font-medium">camera1</h3>
-                        <p className="text-sm text-gray-500">Recording since 2 hours ago</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Badge variant="default">Recording</Badge>
-                      <Button size="sm" variant="outline">
-                        Stop
-                      </Button>
-                    </div>
+                    )})}
                   </div>
-
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center justify-center w-10 h-10 bg-gray-100 rounded-lg">
-                        <Play className="w-5 h-5 text-gray-600" />
-                      </div>
-                      <div>
-                        <h3 className="font-medium">stream2</h3>
-                        <p className="text-sm text-gray-500">No active recording</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Badge variant="secondary">Idle</Badge>
-                      <Button size="sm" variant="outline">
-                        Start
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="monitoring" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Refresh Controls</CardTitle>
+                <CardDescription>Runtime views use configurable polling and manual refresh</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <Switch checked={isPollingEnabled} onCheckedChange={setIsPollingEnabled} />
+                  <Label>Polling enabled</Label>
+                </div>
+                <Select value={String(pollingIntervalMs)} onValueChange={(value) => setPollingIntervalMs(Number(value))}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5000">5 seconds</SelectItem>
+                    <SelectItem value="10000">10 seconds</SelectItem>
+                    <SelectItem value="30000">30 seconds</SelectItem>
+                    <SelectItem value="60000">60 seconds</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" onClick={() => polling.refresh().catch(() => undefined)}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh now
+                </Button>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium">HLS Muxers</CardTitle>
+                  <CardDescription>Runtime HLS activity</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingPaths ? (
+                    <LoadingState label="Loading muxers..." />
+                  ) : dashboardError ? (
+                    <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
+                  ) : hlsMuxers.length === 0 ? (
+                    <EmptyState title="No HLS muxers" />
+                  ) : (
+                    <div className="space-y-2">
+                      {hlsMuxers.map((muxer) => (
+                        <div key={muxer.name} className="rounded-lg border p-3 text-sm">
+                          <div className="font-medium">{muxer.name}</div>
+                          <div className="text-muted-foreground">{formatMegabytes(muxer.bytesSent || 0)} sent</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium">Protocol Resources</CardTitle>
+                  <CardDescription>Connections and sessions</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingPaths ? (
+                    <LoadingState label="Loading protocol resources..." />
+                  ) : dashboardError ? (
+                    <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {Object.entries(protocolCounts).map(([name, count]) => (
+                        <div key={name} className="rounded-lg border p-2">
+                          <div className="font-mono text-lg">{count}</div>
+                          <div className="text-xs text-muted-foreground">{name}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium">Metrics</CardTitle>
+                  <CardDescription>Prometheus endpoint</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {canUseMetrics ? (
+                    <Button asChild variant="outline">
+                      <a href={buildMediaMtxMetricsUrl()} target="_blank" rel="noreferrer">
+                        Open metrics
+                      </a>
+                    </Button>
+                  ) : (
+                    <EmptyState title="Metrics permission disabled" />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium">pprof</CardTitle>
+                  <CardDescription>Runtime profiling endpoint</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {canUsePprof ? (
+                    <Button asChild variant="outline">
+                      <a href={buildMediaMtxPprofUrl()} target="_blank" rel="noreferrer">
+                        Open pprof
+                      </a>
+                    </Button>
+                  ) : (
+                    <EmptyState title="pprof permission disabled" />
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1158,6 +1786,34 @@ function MediaMTXDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Service URLs</CardTitle>
+                <CardDescription>Resolved browser-side MediaMTX service endpoints</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm md:grid-cols-2">
+                <div className="rounded-lg border p-3">
+                  <div className="font-medium">Control API</div>
+                  <div className="break-all font-mono text-xs text-muted-foreground">{normalizeMediaMtxApiBaseUrl()}</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="font-medium">HLS</div>
+                  <div className="break-all font-mono text-xs text-muted-foreground">{normalizeMediaMtxHlsBaseUrl()}</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="font-medium">Playback sample</div>
+                  <div className="break-all font-mono text-xs text-muted-foreground">
+                    {buildMediaMtxPlaybackUrl(selectedStreamPath || "stream")}
+                  </div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="font-medium">Metrics and pprof</div>
+                  <div className="break-all font-mono text-xs text-muted-foreground">{buildMediaMtxMetricsUrl()}</div>
+                  <div className="break-all font-mono text-xs text-muted-foreground">{buildMediaMtxPprofUrl()}</div>
+                </div>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>
@@ -1203,6 +1859,40 @@ function MediaMTXDashboard() {
                     Clear Logs
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Audit Log</CardTitle>
+                <CardDescription>Recent dashboard administrative operations</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {auditEvents.length === 0 ? (
+                  <EmptyState title="No audit entries yet" />
+                ) : (
+                  <ScrollArea className="h-72 rounded-lg border p-4">
+                    <div className="space-y-3">
+                      {auditEvents.map((event) => (
+                        <div key={event.id} className="rounded-lg border p-3 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="font-medium">{event.action}</div>
+                            <Badge variant={event.result === "success" ? "default" : "destructive"}>{event.result}</Badge>
+                          </div>
+                          <div className="mt-1 text-muted-foreground">
+                            {new Date(event.timestamp).toLocaleString()} by {event.actor || "unknown"} on {event.target}
+                          </div>
+                          {event.payloadSummary && (
+                            <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                              {event.payloadSummary}
+                            </div>
+                          )}
+                          {event.errorSummary && <div className="mt-1 text-[#cf202f]">{event.errorSummary}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
