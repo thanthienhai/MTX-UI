@@ -43,6 +43,7 @@ import {
   ArrowUpFromLine,
   Settings,
   Code2,
+  BookOpen,
 } from "lucide-react"
 import { ProtectedRoute } from "@/components/protected-route"
 import { clearAuth, getDashboardSession, getSessionPermissions, getUsername } from "@/lib/auth"
@@ -53,6 +54,7 @@ import { SnapshotConfig } from "@/components/snapshot-config"
 import { SnapshotGallery } from "@/components/snapshot-gallery"
 import { SnapshotThumbnail } from "@/components/snapshot-thumbnail"
 import { ReEncodingConfig } from "@/components/re-encoding-config"
+import { GuidesView } from "@/components/guides-view"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -993,6 +995,10 @@ function MediaMTXDashboard() {
             <TabsTrigger value="proxy" className="rounded-full py-2 data-[state=active]:bg-white">
               <Globe className="w-4 h-4" />
               <span>Proxy</span>
+            </TabsTrigger>
+            <TabsTrigger value="guides" className="rounded-full py-2 data-[state=active]:bg-white">
+              <BookOpen className="w-4 h-4" />
+              <span>Guides</span>
             </TabsTrigger>
           </TabsList>
 
@@ -2072,6 +2078,10 @@ function MediaMTXDashboard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="guides" className="space-y-6">
+            <GuidesView pathSuggestions={paths.map((p) => p.name).filter(Boolean) as string[]} />
           </TabsContent>
         </Tabs>
       </div>
