@@ -58,6 +58,7 @@ import { GuidesView } from "@/components/guides-view"
 import { ConfigImportExport } from "@/components/config-import-export"
 import { SecurityWarnings } from "@/components/security-warnings"
 import { AbsoluteTimestampsInfo } from "@/components/absolute-timestamps-info"
+import { MetricsAlerts } from "@/components/metrics-alerts"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -1686,6 +1687,7 @@ function MediaMTXDashboard() {
           </TabsContent>
 
           <TabsContent value="monitoring" className="space-y-6">
+            <MetricsAlerts pollMs={isPollingEnabled ? pollingIntervalMs : 0} />
             <Card>
               <CardHeader>
                 <CardTitle>Điều khiển refresh</CardTitle>
