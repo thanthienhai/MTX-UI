@@ -39,6 +39,29 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || b === null || a === undefined || b === undefined) return a === b
+  if (typeof a !== typeof b) return false
+  if (typeof a !== "object") return a === b
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false
+    return true
+  }
+  if (Array.isArray(b)) return false
+  const ao = a as Record<string, unknown>
+  const bo = b as Record<string, unknown>
+  const aKeys = Object.keys(ao)
+  const bKeys = Object.keys(bo)
+  if (aKeys.length !== bKeys.length) return false
+  for (const k of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(bo, k)) return false
+    if (!deepEqual(ao[k], bo[k])) return false
+  }
+  return true
+}
+
 function diffObjects(
   current: Record<string, unknown> | undefined,
   incoming: Record<string, unknown> | undefined,
@@ -50,7 +73,7 @@ function diffObjects(
   for (const key of keys) {
     const a = current?.[key]
     const b = incoming?.[key]
-    if (JSON.stringify(a) !== JSON.stringify(b)) {
+    if (!deepEqual(a, b)) {
       result.push({ scope, pathName, field: key, current: a, incoming: b })
     }
   }

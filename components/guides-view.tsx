@@ -78,7 +78,7 @@ function whipUrl(ctx: GuideCtx) {
 }
 
 function srtUrl(ctx: GuideCtx, mode: "publish" | "read") {
-  const sid = mode === "publish" ? `publish:${ctx.path}` : `read:${ctx.path}`
+  const sid = `${mode}:${ctx.path}`
   return `srt://${ctx.host}:${ctx.srtPort}?streamid=${encodeURIComponent(sid)}`
 }
 
