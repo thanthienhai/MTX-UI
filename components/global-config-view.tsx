@@ -7,8 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
-import { AlertCircle, CheckCircle2, Eye, EyeOff, RefreshCw } from "lucide-react"
+import { CheckCircle2, Eye, EyeOff, RefreshCw } from "lucide-react"
 import { LoadingState, ErrorState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -60,7 +59,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
 
   // Patch preview state
   const [pendingPatchPreview, setPendingPatchPreview] = useState<Record<string, unknown> | null>(null)
-  const [patchPreviewSection, setPatchPreviewSection] = useState<"general" | "hooks" | null>(null)
+  const [patchPreviewSection, setPatchPreviewSection] = useState<"general" | null>(null)
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false)
 
   // --- General settings keys ---
@@ -77,8 +76,6 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
     "udpMaxPayloadSize",
     "udpReadBufferSize",
   ]
-
-  const hookKeys: (keyof GlobalConf)[] = ["runOnConnect", "runOnConnectRestart", "runOnDisconnect"]
 
   // --- Fetch ---
   const fetchConfig = useCallback(async () => {
@@ -124,20 +121,20 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
   )
 
   // --- Patch helpers ---
-  const showPreview = (section: "general" | "hooks") => {
+  const showPreview = (section: "general") => {
     if (!globalConfig || !originalConfig) return
 
-    const keys = section === "general" ? generalKeys : hookKeys
+    const keys = section === "general" ? generalKeys : generalKeys
     const dirty = computeDirtyFields(originalConfig, globalConfig, keys)
     setPendingPatchPreview(dirty)
     setPatchPreviewSection(section)
     setIsPreviewExpanded(true)
   }
 
-  const executePatch = async (section: "general" | "hooks") => {
+  const executePatch = async (section: "general") => {
     if (!globalConfig || !originalConfig) return
 
-    const keys = section === "general" ? generalKeys : hookKeys
+    const keys = section === "general" ? generalKeys : generalKeys
     const dirty = computeDirtyFields(originalConfig, globalConfig, keys)
     if (Object.keys(dirty).length === 0) {
       notify({ type: "info", title: "Không có thay đổi để lưu" })
@@ -158,13 +155,13 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
       setLastSyncedAt(new Date().toISOString())
       notify({
         type: "success",
-        title: `Đã cập nhật ${section === "general" ? "cài đặt chung" : "global hooks"}`,
+        title: "Đã cập nhật cài đặt chung",
         message: "Cấu hình đã được patch qua hot-reload",
       })
 
       appendAuditEvent?.({
         actor: username,
-        action: `global-config.${section}.patch`,
+        action: "global-config.general.patch",
         target: "global",
         payloadSummary: JSON.stringify(dirty),
         result: "success",
@@ -311,7 +308,6 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
   }
 
   const generalDirtyCount = computeDirtyFields(originalConfig || {}, globalConfig, generalKeys)
-  const hooksDirtyCount = computeDirtyFields(originalConfig || {}, globalConfig, hookKeys)
 
   return (
     <div className="space-y-6">
@@ -321,7 +317,7 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
           <h2 className="text-lg font-semibold">Cấu hình global của máy chủ</h2>
           <p className="text-sm text-muted-foreground">
             Đồng bộ lần cuối: {formatTimestamp(lastSyncedAt)}
-            {Object.keys(generalDirtyCount).length + Object.keys(hooksDirtyCount).length > 0 && (
+            {Object.keys(generalDirtyCount).length > 0 && (
               <span className="ml-2 text-amber-600">(có thay đổi chưa lưu)</span>
             )}
           </p>
@@ -451,46 +447,6 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
               {renderNumberInput("UDP Max Payload Size", "udpMaxPayloadSize", "1472")}
 
               {renderNumberInput("UDP Read Buffer Size", "udpReadBufferSize", "65536")}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Separator />
-
-      {/* Global Hooks Card */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Global hooks</CardTitle>
-              <CardDescription>Lệnh chạy theo vòng đời connection</CardDescription>
-            </div>
-            {!pendingPatchPreview && (
-              <Button
-                onClick={() => showPreview("hooks")}
-                disabled={!canUseApi || isPatchInFlight || Object.keys(hooksDirtyCount).length === 0}
-              >
-                <Eye className="mr-2 h-4 w-4" />
-                Xem trước & lưu
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="space-y-4">
-              {renderTextInput("Khi connect", "runOnConnect", "/path/to/connect-hook.sh")}
-
-              {renderSwitch(
-                "Restart khi connect",
-                "Khởi động lại lệnh connect hook khi lệnh thoát",
-                "runOnConnectRestart",
-              )}
-            </div>
-
-            <div className="space-y-4">
-              {renderTextInput("Khi disconnect", "runOnDisconnect", "/path/to/disconnect-hook.sh")}
             </div>
           </div>
         </CardContent>

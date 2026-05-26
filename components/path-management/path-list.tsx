@@ -18,6 +18,8 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { StreamPlayer } from "@/components/stream-player"
+import { PathStateBadge } from "@/components/path-state-badge"
+import { CommandLifecycleBadge } from "@/components/command-lifecycle-badge"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
 import type { PathConf, Path } from "@/lib/mediamtx-api"
@@ -119,15 +121,13 @@ export function PathList({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="truncate text-base font-semibold text-[#0a0b0d]">{row.name}</h3>
-                {row.isReady ? (
-                  <Badge className="rounded-full bg-[#0a0b0d] px-2.5 text-white hover:bg-[#0a0b0d]">
-                    <span className="mr-1.5 h-2 w-2 rounded-full bg-[#05b169]" />
-                    LIVE
-                  </Badge>
+                {row.runtime ? (
+                  <PathStateBadge path={row.runtime} />
                 ) : (
-                  <Badge variant="secondary" className="rounded-full px-2.5">
-                    Idle
-                  </Badge>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                    <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
+                    Offline
+                  </span>
                 )}
                 {!row.hasConfig && row.hasRuntime && (
                   <Badge variant="outline" className="text-xs">
@@ -138,6 +138,9 @@ export function PathList({
                   <Badge variant="outline" className="text-xs">
                     Config only
                   </Badge>
+                )}
+                {row.config && (row.config.runOnInit || row.config.runOnDemand) && (
+                  <CommandLifecycleBadge config={row.config} runtime={row.runtime} />
                 )}
               </div>
               <p className="mt-1 truncate text-sm text-[#5b616e]">

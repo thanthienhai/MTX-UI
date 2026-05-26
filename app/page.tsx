@@ -42,6 +42,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Settings,
+  Code2,
 } from "lucide-react"
 import { ProtectedRoute } from "@/components/protected-route"
 import { clearAuth, getDashboardSession, getSessionPermissions, getUsername } from "@/lib/auth"
@@ -50,6 +51,8 @@ import { WHEPPlayer } from "@/components/whep-player"
 import { MultiViewPlayer } from "@/components/multi-view-player"
 import { SnapshotConfig } from "@/components/snapshot-config"
 import { SnapshotGallery } from "@/components/snapshot-gallery"
+import { SnapshotThumbnail } from "@/components/snapshot-thumbnail"
+import { ReEncodingConfig } from "@/components/re-encoding-config"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -72,6 +75,7 @@ import {
 } from "@/lib/mediamtx-url.mjs"
 import { useRefreshPolling } from "@/hooks/use-refresh-polling"
 import { GlobalConfigView } from "@/components/global-config-view"
+import { HooksView } from "@/components/hooks-view"
 import { ProtocolServerManagement } from "@/components/protocol-server-management"
 import { AuthConfigurationView } from "@/components/auth-configuration-view"
 import { RecordingSettingsView } from "@/components/recording-settings-view"
@@ -86,6 +90,7 @@ import {
   getTrafficTotals,
 } from "@/lib/dashboard-overview.mjs"
 import { ProxyConfig } from "@/components/proxy-config"
+import { CommandLifecycleBadge } from "@/components/command-lifecycle-badge"
 import { isUpstreamSourceUrl } from "@/lib/path-management.mjs"
 
 function MediaMTXDashboard() {
@@ -722,6 +727,7 @@ function MediaMTXDashboard() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
+                <SnapshotThumbnail pathName={path.name} />
                 <h3 className="truncate text-base font-semibold text-[#0a0b0d]">{path.name}</h3>
                 {status.isLive ? (
                   <Badge className="rounded-full bg-[#0a0b0d] px-2.5 text-white hover:bg-[#0a0b0d]">
@@ -943,7 +949,7 @@ function MediaMTXDashboard() {
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Tabs defaultValue="overview" className="space-y-8">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-5 lg:grid-cols-10">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-6 lg:grid-cols-11">
             <TabsTrigger value="overview" className="rounded-full py-2 data-[state=active]:bg-white">
               <Monitor className="w-4 h-4" />
               <span>Tổng quan</span>
@@ -963,6 +969,10 @@ function MediaMTXDashboard() {
             <TabsTrigger value="config" className="rounded-full py-2 data-[state=active]:bg-white">
               <Settings className="w-4 h-4" />
               <span>Cấu hình</span>
+            </TabsTrigger>
+            <TabsTrigger value="hooks" className="rounded-full py-2 data-[state=active]:bg-white">
+              <Code2 className="w-4 h-4" />
+              <span>Hooks</span>
             </TabsTrigger>
             <TabsTrigger value="protocols" className="rounded-full py-2 data-[state=active]:bg-white">
               <Radio className="w-4 h-4" />
@@ -1613,6 +1623,14 @@ function MediaMTXDashboard() {
             />
           </TabsContent>
 
+          <TabsContent value="hooks" className="space-y-6">
+            <HooksView
+              permissions={permissions}
+              username={username}
+              appendAuditEvent={appendAuditEvent}
+            />
+          </TabsContent>
+
           <TabsContent value="protocols" className="space-y-6">
             <ProtocolServerManagement
               permissions={permissions}
@@ -2113,7 +2131,15 @@ function MediaMTXDashboard() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>Tên path</Label>
-                <Input value={editingPath.name} disabled />
+                <div className="flex items-center gap-2">
+                  <Input value={editingPath.name} disabled className="flex-1" />
+                  {(editingPath.runOnInit || editingPath.runOnDemand) && (
+                    <CommandLifecycleBadge
+                      config={editingPath}
+                      runtime={livePaths.find((lp: LivePath) => lp.name === editingPath.name) || null}
+                    />
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -2186,6 +2212,22 @@ function MediaMTXDashboard() {
                 onChange={(cmd) => setEditingPath({ ...editingPath, runOnReady: cmd, runOnReadyRestart: cmd.length > 0 })}
                 pathName={editingPath.name}
               />
+
+              <Separator className="my-2" />
+
+              <ReEncodingConfig
+                command={editingPath.runOnReady || ""}
+                restart={editingPath.runOnReadyRestart ?? false}
+                onCommandChange={(cmd) => setEditingPath({ ...editingPath, runOnReady: cmd })}
+                onRestartChange={(restart) => setEditingPath({ ...editingPath, runOnReadyRestart: restart })}
+                pathName={editingPath.name}
+              />
+              {editingPath.runOnReady && editingPath.runOnReady.length > 0 && (
+                <p className="text-xs text-amber-600">
+                  Lưu ý: Snapshot và Re-Encoding cùng dùng hook runOnReady. Chỉ một lệnh được chạy. 
+                  Bạn có thể dùng runOnInit hoặc runOnDemand cho một trong hai nếu cần chạy đồng thời.
+                </p>
+              )}
             </div>
           )}
           <DialogFooter>

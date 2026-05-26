@@ -24,11 +24,15 @@ import {
 } from "@/components/ui/dialog"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
-import type { PathConf } from "@/lib/mediamtx-api"
+import type { PathConf, Path } from "@/lib/mediamtx-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 import { getFieldsForSourceType, detectSourceType } from "@/lib/path-management.mjs"
 import { ForwardingConfig } from "@/components/forwarding-config"
+import { ReEncodingConfig } from "@/components/re-encoding-config"
 import { ProxyConfig } from "@/components/proxy-config"
+import { StreamModeSelector, detectStreamMode, applyStreamMode, type StreamMode } from "@/components/stream-mode-selector"
+import { OnDemandConfig } from "@/components/on-demand-config"
+import { HookCommandEditor, HOOK_ENV_VARS } from "@/components/hook-command-editor"
 
 type PathNameMode = "normal" | "regex" | "all_others"
 type SourceType =
@@ -48,6 +52,7 @@ interface PathFormProps {
   mode: "add" | "edit"
   submitMode?: "patch" | "replace"
   initialPath?: PathConf | null
+  runtimePath?: Path | null
   permissions: MediaMtxPermissionSet
   username?: string | null
   isOpen: boolean
@@ -88,6 +93,7 @@ export function PathForm({
   mode,
   submitMode = "patch",
   initialPath,
+  runtimePath,
   permissions,
   username,
   isOpen,
@@ -117,6 +123,20 @@ export function PathForm({
   const [recordDeleteAfter, setRecordDeleteAfter] = useState("0s")
   const [recordMaxPartSize, setRecordMaxPartSize] = useState("50M")
 
+  // Stream mode
+  const [streamMode, setStreamMode] = useState<StreamMode>("publisher")
+
+  // runOnInit (for Always Pull mode)
+  const [runOnInit, setRunOnInit] = useState("")
+  const [runOnInitRestart, setRunOnInitRestart] = useState(true)
+
+  // On-Demand Publishing fields
+  const [runOnDemand, setRunOnDemand] = useState("")
+  const [runOnDemandRestart, setRunOnDemandRestart] = useState(true)
+  const [runOnDemandStartTimeout, setRunOnDemandStartTimeout] = useState("10s")
+  const [runOnDemandCloseAfter, setRunOnDemandCloseAfter] = useState("10s")
+  const [runOnUnDemand, setRunOnUnDemand] = useState("")
+
   // Forwarding fields
   const [runOnReady, setRunOnReady] = useState("")
   const [runOnReadyRestart, setRunOnReadyRestart] = useState(true)
@@ -141,6 +161,15 @@ export function PathForm({
   const detectedSourceType = useMemo(() => detectSourceType(source), [source])
   const showSourceUrl = !["publisher", "redirect", "rpiCameraSource"].includes(detectedSourceType)
 
+  // Keep streamMode in sync when source becomes publisher
+  useEffect(() => {
+    if (source === "publisher" && streamMode !== "publisher") {
+      setStreamMode("publisher")
+    } else if (source && source !== "publisher" && streamMode === "publisher") {
+      setStreamMode("pullUpstream")
+    }
+  }, [source, streamMode])
+
   // Load initial path data
   useEffect(() => {
     if (initialPath && mode === "edit") {
@@ -160,6 +189,22 @@ export function PathForm({
       setRecordSegmentDuration(initialPath.recordSegmentDuration || "1h")
       setRecordDeleteAfter(initialPath.recordDeleteAfter || "0s")
       setRecordMaxPartSize(initialPath.recordMaxPartSize || "50M")
+
+      // Forwarding
+      // Stream mode
+      const hasRunOnInit = !!(initialPath.runOnInit)
+      setStreamMode(detectStreamMode(initialPath.source || "", initialPath.sourceOnDemand ?? true, hasRunOnInit))
+
+      // runOnInit
+      setRunOnInit(initialPath.runOnInit || "")
+      setRunOnInitRestart(initialPath.runOnInitRestart ?? true)
+
+      // On-Demand Publishing
+      setRunOnDemand(initialPath.runOnDemand || "")
+      setRunOnDemandRestart(initialPath.runOnDemandRestart ?? true)
+      setRunOnDemandStartTimeout(initialPath.runOnDemandStartTimeout || "10s")
+      setRunOnDemandCloseAfter(initialPath.runOnDemandCloseAfter || "10s")
+      setRunOnUnDemand(initialPath.runOnUnDemand || "")
 
       // Forwarding
       setRunOnReady(initialPath.runOnReady || "")
@@ -214,6 +259,14 @@ export function PathForm({
     setRecordSegmentDuration("1h")
     setRecordDeleteAfter("0s")
     setRecordMaxPartSize("50M")
+    setStreamMode("publisher")
+    setRunOnInit("")
+    setRunOnInitRestart(true)
+    setRunOnDemand("")
+    setRunOnDemandRestart(true)
+    setRunOnDemandStartTimeout("10s")
+    setRunOnDemandCloseAfter("10s")
+    setRunOnUnDemand("")
     setRunOnReady("")
     setRunOnReadyRestart(true)
     setRpiCameraCamID(0)
@@ -253,6 +306,14 @@ export function PathForm({
 
     if (sourceOnDemandCloseAfter && !/^\d+(ms|s|m|h|d)?$/.test(sourceOnDemandCloseAfter)) {
       errors.sourceOnDemandCloseAfter = "Phải là duration hợp lệ (vd: 10s, 5m)"
+    }
+
+    // On-Demand Publishing validation
+    if (runOnDemandStartTimeout && !/^\d+(ms|s|m|h|d)?$/.test(runOnDemandStartTimeout)) {
+      errors.runOnDemandStartTimeout = "Phải là duration hợp lệ (vd: 10s, 5m)"
+    }
+    if (runOnDemandCloseAfter && !/^\d+(ms|s|m|h|d)?$/.test(runOnDemandCloseAfter)) {
+      errors.runOnDemandCloseAfter = "Phải là duration hợp lệ (vd: 10s, 5m)"
     }
 
     // Forwarding validation
@@ -312,6 +373,23 @@ export function PathForm({
       if (recordSegmentDuration) base.recordSegmentDuration = recordSegmentDuration
       if (recordDeleteAfter) base.recordDeleteAfter = recordDeleteAfter
       if (recordMaxPartSize) base.recordMaxPartSize = recordMaxPartSize
+    }
+
+    // runOnInit (Always Pull)
+    if (streamMode === "alwaysPull" && runOnInit) {
+      base.runOnInit = runOnInit
+      base.runOnInitRestart = runOnInitRestart
+    }
+
+    // On-Demand Publishing
+    if (runOnDemand) {
+      base.runOnDemand = runOnDemand
+      base.runOnDemandRestart = runOnDemandRestart
+      if (runOnDemandStartTimeout) base.runOnDemandStartTimeout = runOnDemandStartTimeout
+      if (runOnDemandCloseAfter) base.runOnDemandCloseAfter = runOnDemandCloseAfter
+    }
+    if (runOnUnDemand) {
+      base.runOnUnDemand = runOnUnDemand
     }
 
     // Forwarding
@@ -461,10 +539,19 @@ export function PathForm({
               value={detectedSourceType}
               onValueChange={(v) => {
                 const st = v as SourceType
-                if (st === "publisher") setSource("publisher")
-                else if (st === "redirect") setSource("redirect://")
-                else if (st === "rpiCameraSource") setSource("rpiCamera://")
-                else setSource("")
+                if (st === "publisher") {
+                  setSource("publisher")
+                  setStreamMode("publisher")
+                } else if (st === "redirect") {
+                  setSource("redirect://")
+                  setStreamMode("pullUpstream")
+                } else if (st === "rpiCameraSource") {
+                  setSource("rpiCamera://")
+                  setStreamMode("alwaysPull")
+                } else {
+                  setSource("")
+                  setStreamMode("pullUpstream")
+                }
               }}
             >
               <SelectTrigger>
@@ -512,6 +599,75 @@ export function PathForm({
                 {detectedSourceType === "webRTCSource" && "URL WHEP endpoint"}
               </p>
               {fieldErrors.source && <p className="text-xs text-[#cf202f]">{fieldErrors.source}</p>}
+            </div>
+          )}
+
+          {/* Stream Mode Selector */}
+          <Separator />
+          <StreamModeSelector
+            value={streamMode}
+            onChange={(mode) => {
+              const result = applyStreamMode(mode, source)
+              setStreamMode(mode)
+              setSource(result.source)
+              setSourceOnDemand(result.sourceOnDemand)
+              if (mode === "alwaysPull" && result.runOnInit !== undefined) {
+                setRunOnInit(result.runOnInit || "")
+              }
+            }}
+            detectedSourceType={detectedSourceType}
+          />
+
+          {/* Source OnDemand timeouts (for on-demand modes) */}
+          {streamMode === "onDemandPull" && (
+            <div className="grid grid-cols-2 gap-4 ml-4">
+              <div className="space-y-2">
+                <Label htmlFor="sourceOnDemandStartTimeout">Start Timeout</Label>
+                <Input
+                  id="sourceOnDemandStartTimeout"
+                  placeholder="10s"
+                  value={sourceOnDemandStartTimeout}
+                  onChange={(e) => setSourceOnDemandStartTimeout(e.target.value)}
+                  className={fieldErrors.sourceOnDemandStartTimeout ? "border-[#cf202f]" : ""}
+                />
+                {fieldErrors.sourceOnDemandStartTimeout && (
+                  <p className="text-xs text-[#cf202f]">{fieldErrors.sourceOnDemandStartTimeout}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sourceOnDemandCloseAfter">Close After</Label>
+                <Input
+                  id="sourceOnDemandCloseAfter"
+                  placeholder="10s"
+                  value={sourceOnDemandCloseAfter}
+                  onChange={(e) => setSourceOnDemandCloseAfter(e.target.value)}
+                  className={fieldErrors.sourceOnDemandCloseAfter ? "border-[#cf202f]" : ""}
+                />
+                {fieldErrors.sourceOnDemandCloseAfter && (
+                  <p className="text-xs text-[#cf202f]">{fieldErrors.sourceOnDemandCloseAfter}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* runOnInit for Always Pull */}
+          {streamMode === "alwaysPull" && (
+            <div className="ml-4 space-y-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <HookCommandEditor
+                hookName="runOnInit"
+                label="runOnInit command (khởi tạo nguồn tĩnh)"
+                value={runOnInit}
+                onChange={(v) => setRunOnInit(v || "")}
+                placeholder="ffmpeg -re -stream_loop -1 -i /data/video.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH"
+                envVars={HOOK_ENV_VARS.lifecycle}
+              />
+              <div className="flex items-center space-x-2">
+                <Switch checked={runOnInitRestart} onCheckedChange={setRunOnInitRestart} />
+                <Label>Tự động khởi động lại nếu lệnh thoát (runOnInitRestart)</Label>
+              </div>
+              <p className="text-xs text-blue-600 ml-6">
+                MediaMTX sẽ khởi động lại lệnh nếu process bị thoát.
+              </p>
             </div>
           )}
 
@@ -656,46 +812,6 @@ export function PathForm({
 
           <Separator />
 
-          {/* Source On Demand */}
-          <div className="flex items-center space-x-2">
-            <Switch checked={sourceOnDemand} onCheckedChange={setSourceOnDemand} />
-            <Label>Nguồn theo nhu cầu (On-demand)</Label>
-          </div>
-          <p className="text-xs text-muted-foreground ml-6">
-            Chỉ khởi động nguồn khi có client yêu cầu
-          </p>
-
-          {sourceOnDemand && (
-            <div className="grid grid-cols-2 gap-4 ml-6">
-              <div className="space-y-2">
-                <Label htmlFor="sourceOnDemandStartTimeout">Start Timeout</Label>
-                <Input
-                  id="sourceOnDemandStartTimeout"
-                  placeholder="10s"
-                  value={sourceOnDemandStartTimeout}
-                  onChange={(e) => setSourceOnDemandStartTimeout(e.target.value)}
-                  className={fieldErrors.sourceOnDemandStartTimeout ? "border-[#cf202f]" : ""}
-                />
-                {fieldErrors.sourceOnDemandStartTimeout && (
-                  <p className="text-xs text-[#cf202f]">{fieldErrors.sourceOnDemandStartTimeout}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sourceOnDemandCloseAfter">Close After</Label>
-                <Input
-                  id="sourceOnDemandCloseAfter"
-                  placeholder="10s"
-                  value={sourceOnDemandCloseAfter}
-                  onChange={(e) => setSourceOnDemandCloseAfter(e.target.value)}
-                  className={fieldErrors.sourceOnDemandCloseAfter ? "border-[#cf202f]" : ""}
-                />
-                {fieldErrors.sourceOnDemandCloseAfter && (
-                  <p className="text-xs text-[#cf202f]">{fieldErrors.sourceOnDemandCloseAfter}</p>
-                )}
-              </div>
-            </div>
-          )}
-
           <Separator />
 
           {/* Recording Section */}
@@ -787,6 +903,45 @@ export function PathForm({
             />
             {fieldErrors.runOnReady && (
               <p className="text-xs text-[#cf202f] ml-6">{fieldErrors.runOnReady}</p>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* On-Demand Publishing */}
+          <div className="space-y-4">
+            <OnDemandConfig
+              runOnDemand={runOnDemand}
+              runOnDemandRestart={runOnDemandRestart}
+              runOnDemandStartTimeout={runOnDemandStartTimeout}
+              runOnDemandCloseAfter={runOnDemandCloseAfter}
+              runOnUnDemand={runOnUnDemand}
+              onRunOnDemandChange={setRunOnDemand}
+              onRunOnDemandRestartChange={setRunOnDemandRestart}
+              onRunOnDemandStartTimeoutChange={setRunOnDemandStartTimeout}
+              onRunOnDemandCloseAfterChange={setRunOnDemandCloseAfter}
+              onRunOnUnDemandChange={setRunOnUnDemand}
+              pathName={name || (initialPath?.name || "")}
+              runtimePath={runtimePath}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Re-Encoding Section */}
+          <div className="space-y-4">
+            <ReEncodingConfig
+              command={runOnReady}
+              restart={runOnReadyRestart}
+              onCommandChange={(cmd) => setRunOnReady(cmd)}
+              onRestartChange={(restart) => setRunOnReadyRestart(restart)}
+              pathName={name || (initialPath?.name || "")}
+            />
+            {runOnReady && runOnReady.length > 0 && (
+              <p className="text-xs text-amber-600 ml-6">
+                Lưu ý: Forwarding và Re-Encoding cùng dùng hook runOnReady. Chỉ một lệnh được chạy. 
+                Bạn có thể dùng runOnInit hoặc runOnDemand cho một trong hai nếu cần chạy đồng thời.
+              </p>
             )}
           </div>
 

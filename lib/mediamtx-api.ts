@@ -181,13 +181,27 @@ export interface GlobalConf extends JsonObject {
 export interface PathConf extends JsonObject {
   name: string
   source: string
+  runOnInit?: string
+  runOnInitRestart?: boolean
+  runOnDemand?: string
+  runOnDemandRestart?: boolean
+  runOnDemandStartTimeout?: string
+  runOnDemandCloseAfter?: string
+  runOnUnDemand?: string
   runOnReady?: string
   runOnReadyRestart?: boolean
+  runOnNotReady?: string
+  runOnRead?: string
+  runOnReadRestart?: boolean
+  runOnUnread?: string
+  runOnRecordSegmentCreate?: string
+  runOnRecordSegmentComplete?: string
   sourceFingerprint?: string
   sourceOnDemand?: boolean
   sourceOnDemandStartTimeout?: string
   sourceOnDemandCloseAfter?: string
   maxReaders?: number
+  fallback?: string
   record?: boolean
   recordPath?: string
   recordFormat?: string

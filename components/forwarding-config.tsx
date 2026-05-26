@@ -1,12 +1,11 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { AlertTriangle } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { HookCommandEditor, HOOK_ENV_VARS } from "@/components/hook-command-editor"
 
 type ForwardTarget = "rtsp" | "rtmp" | "srt" | "hls"
 
@@ -125,18 +124,6 @@ export function ForwardingConfig({
 
       {enabled && (
         <div className="ml-6 space-y-4">
-          {/* Security warning */}
-          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <p className="font-medium">Yêu cầu FFmpeg</p>
-              <p className="mt-1 text-amber-700">
-                Forward cần FFmpeg trên server MediaMTX. Command chạy với quyền của process MediaMTX.
-                Không sử dụng command từ nguồn không tin cậy.
-              </p>
-            </div>
-          </div>
-
           {/* Target protocol */}
           <div className="space-y-2">
             <Label htmlFor="forwardProtocol">Giao thức đích</Label>
@@ -183,37 +170,16 @@ export function ForwardingConfig({
             MediaMTX sẽ khởi động lại FFmpeg nếu process bị thoát hoặc gặp lỗi.
           </p>
 
-          {/* Editable command */}
-          <div className="space-y-2">
-            <Label htmlFor="forwardCommand">FFmpeg command (runOnReady)</Label>
-            <Textarea
-              id="forwardCommand"
-              value={command}
-              onChange={(e) => onCommandChange(e.target.value)}
-              className="min-h-[60px] font-mono text-xs"
-              placeholder={`ffmpeg -i rtsp://localhost:8554/${pathName} -c copy -f ${targetProtocol} "${currentPlaceholder}"`}
-            />
-            <p className="text-xs text-muted-foreground">
-              Bạn có thể chỉnh sửa trực tiếp command này. Thay đổi ở các trường trên sẽ cập nhật lại command.
-            </p>
-          </div>
-
-          {/* Environment variables helper */}
-          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-700">
-            <p className="font-medium mb-1">Biến môi trường có sẵn trong runOnReady:</p>
-            <code className="block mt-1 text-blue-600">
-              MTX_PATH - Tên path hiện tại
-            </code>
-            <code className="block text-blue-600">
-              RTSP_PORT - Cổng RTSP server
-            </code>
-            <code className="block text-blue-600">
-              MTX_SOURCE_TYPE - Loại nguồn (rtspSession, rtmpConn...)
-            </code>
-            <code className="block text-blue-600">
-              G1, G2... - Regex capture groups (nếu path là regex)
-            </code>
-          </div>
+          {/* Command editor with HookCommandEditor */}
+          <HookCommandEditor
+            hookName="runOnReady"
+            label="FFmpeg command (runOnReady)"
+            value={command}
+            onChange={(v) => onCommandChange(v || "")}
+            placeholder={`ffmpeg -i rtsp://localhost:8554/${pathName} -c copy -f ${targetProtocol} "${currentPlaceholder}"`}
+            envVars={HOOK_ENV_VARS.lifecycle}
+            disabled={false}
+          />
         </div>
       )}
     </div>

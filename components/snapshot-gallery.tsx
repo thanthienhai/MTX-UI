@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { ImageIcon, Download, Trash2, Camera } from "lucide-react"
+import { ImageIcon, Download, Trash2, Camera, RefreshCw, Loader2 } from "lucide-react"
 
 interface Snapshot {
   filename: string
@@ -21,12 +21,50 @@ interface Snapshot {
 
 interface SnapshotGalleryProps {
   pathName: string
-  snapshots?: Snapshot[]
 }
 
-export function SnapshotGallery({ pathName, snapshots = [] }: SnapshotGalleryProps) {
+export function SnapshotGallery({ pathName }: SnapshotGalleryProps) {
   const [open, setOpen] = useState(false)
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchSnapshots = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/snapshots/list?path=${encodeURIComponent(pathName)}`)
+      if (!res.ok) {
+        throw new Error(`Failed to list snapshots: ${res.status}`)
+      }
+      const data = await res.json()
+      setSnapshots(data.snapshots || [])
+    } catch (err) {
+      console.error("Error fetching snapshots:", err)
+      setError(err instanceof Error ? err.message : "Không thể tải snapshot")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [pathName])
+
+  // Fetch on open
+  useEffect(() => {
+    if (open) {
+      fetchSnapshots()
+
+      // Auto-refresh every 10s while open
+      pollingRef.current = setInterval(fetchSnapshots, 10000)
+
+      return () => {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current)
+          pollingRef.current = null
+        }
+      }
+    }
+  }, [open, fetchSnapshots])
 
   const handleDownload = useCallback((snapshot: Snapshot) => {
     const link = document.createElement("a")
@@ -36,24 +74,43 @@ export function SnapshotGallery({ pathName, snapshots = [] }: SnapshotGalleryPro
   }, [])
 
   const handleDelete = useCallback(
-    (filename: string) => {
-      // TODO: wire up actual delete API
-      console.log("Delete snapshot:", filename)
-      setDeleteConfirm(null)
+    async (filename: string) => {
+      try {
+        const res = await fetch("/api/snapshots/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: pathName, name: filename }),
+        })
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}))
+          throw new Error(errData.error || `Delete failed: ${res.status}`)
+        }
+
+        // Remove from local state
+        setSnapshots((prev) => prev.filter((s) => s.filename !== filename))
+        setDeleteConfirm(null)
+      } catch (err) {
+        console.error("Error deleting snapshot:", err)
+        alert(`Không thể xóa snapshot: ${err instanceof Error ? err.message : "Lỗi không xác định"}`)
+      }
     },
-    [],
+    [pathName],
   )
+
+  const formatTimestamp = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleString("vi-VN")
+    } catch {
+      return ts
+    }
+  }
 
   return (
     <>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button
-            size="icon"
-            variant="outline"
-            className="rounded-full"
-            title="Snapshots"
-          >
+          <Button id={`snapshot-gallery-btn-${pathName}`} size="icon" variant="outline" className="rounded-full" title="Snapshots">
             <Camera className="h-4 w-4" />
           </Button>
         </DialogTrigger>
@@ -66,20 +123,44 @@ export function SnapshotGallery({ pathName, snapshots = [] }: SnapshotGalleryPro
             <DialogDescription>
               {snapshots.length > 0
                 ? `${snapshots.length} snapshot(s) for this path`
-                : "No snapshots available for this path."}
+                : "Browse snapshots captured from this stream."}
             </DialogDescription>
           </DialogHeader>
 
-          {snapshots.length === 0 ? (
+          {/* Toolbar */}
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={fetchSnapshots} disabled={isLoading}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+
+          {/* Loading state */}
+          {isLoading && snapshots.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center text-muted-foreground">
+              <Loader2 className="mb-3 h-8 w-8 animate-spin" />
+              <p className="text-sm font-medium">Đang tải snapshots...</p>
+            </div>
+          ) : /* Error state */
+          error ? (
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-red-200 py-12 text-center text-red-500">
+              <p className="text-sm font-medium">Lỗi tải snapshots</p>
+              <p className="mt-1 text-xs">{error}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={fetchSnapshots}>
+                Thử lại
+              </Button>
+            </div>
+          ) : /* Empty state */
+          snapshots.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center text-muted-foreground">
               <Camera className="mb-3 h-10 w-10" />
               <p className="text-sm font-medium">No snapshots yet</p>
               <p className="mt-1 text-xs">
-                Snapshots are taken periodically when FFmpeg snapshot is configured and the stream
-                is active.
+                Snapshots are taken periodically when snapshot is configured and the stream is active.
               </p>
             </div>
           ) : (
+            /* Gallery grid */
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               {snapshots.map((snapshot) => (
                 <div
@@ -113,7 +194,7 @@ export function SnapshotGallery({ pathName, snapshots = [] }: SnapshotGalleryPro
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <span className="ml-auto self-center px-1 text-[10px] text-white drop-shadow-md">
-                        {snapshot.timestamp}
+                        {formatTimestamp(snapshot.timestamp)}
                       </span>
                     </div>
                   </div>
