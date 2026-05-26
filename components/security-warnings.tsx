@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, ShieldAlert, ShieldCheck, Info } from "lucide-react"
 import * as api from "@/lib/mediamtx-api"
-import type { GlobalConf } from "@/lib/mediamtx-api"
+import type { GlobalConf, PathConf } from "@/lib/mediamtx-api"
 
 type Severity = "high" | "medium" | "low" | "info"
 
@@ -40,7 +40,30 @@ function severityBadge(s: Severity) {
   return <Badge variant="outline" className={color}>{s.toUpperCase()}</Badge>
 }
 
-export function evaluateSecurity(config: GlobalConf | null): Finding[] {
+/**
+ * Heuristic to flag dangerous shell constructs in user-supplied hook
+ * commands. Matches subshells, backtick eval, and known download/exec
+ * tokens at word boundaries — tightened so `rm-tool` or `sh.exe` no
+ * longer false-positive.
+ */
+const DANGEROUS_HOOK_PATTERN =
+  /(?:^|\s)(rm|curl|wget|bash|sh|nc|netcat|chmod|chown|kill|killall|eval|exec)(?:\s|$)|`[^`]*`|\$\([^)]*\)/
+
+export const PATH_HOOK_FIELDS = [
+  "runOnInit",
+  "runOnDemand",
+  "runOnUnDemand",
+  "runOnReady",
+  "runOnNotReady",
+  "runOnRead",
+  "runOnUnread",
+  "runOnRecordSegmentCreate",
+  "runOnRecordSegmentComplete",
+] as const
+
+const GLOBAL_HOOK_FIELDS = ["runOnConnect", "runOnDisconnect"] as const
+
+export function evaluateSecurity(config: GlobalConf | null, paths: PathConf[] = []): Finding[] {
   if (!config) return []
   const findings: Finding[] = []
 
@@ -105,22 +128,29 @@ export function evaluateSecurity(config: GlobalConf | null): Finding[] {
     })
   }
 
-  // 3. Hooks chứa command nguy hiểm
-  const hookFields = [
-    "runOnConnect",
-    "runOnConnectRestart",
-    "runOnDisconnect",
-  ] as const
-  for (const hf of hookFields) {
+  // 3. Hooks chứa command nguy hiểm (global + per-path)
+  for (const hf of GLOBAL_HOOK_FIELDS) {
     const cmd = (config as Record<string, unknown>)[hf]
-    if (typeof cmd === "string" && cmd.trim()) {
-      if (/(\b(rm|curl|wget|bash|sh|nc|netcat)\b\s+[^\s|]+|`[^`]*`|\$\([^)]*\))/.test(cmd)) {
+    if (typeof cmd === "string" && cmd.trim() && DANGEROUS_HOOK_PATTERN.test(cmd)) {
+      findings.push({
+        id: `hook-global-${hf}`,
+        severity: "medium",
+        title: `Global hook ${hf} chứa command có khả năng nguy hiểm`,
+        detail:
+          "Hook chạy với quyền của process MediaMTX. Tránh subshell, eval và download từ Internet. Kiểm tra nguồn command kỹ trước khi enable.",
+      })
+    }
+  }
+  for (const p of paths) {
+    for (const hf of PATH_HOOK_FIELDS) {
+      const cmd = (p as Record<string, unknown>)[hf]
+      if (typeof cmd === "string" && cmd.trim() && DANGEROUS_HOOK_PATTERN.test(cmd)) {
         findings.push({
-          id: `hook-${hf}`,
+          id: `hook-path-${p.name}-${hf}`,
           severity: "medium",
-          title: `Hook ${hf} chứa command có khả năng nguy hiểm`,
+          title: `Hook ${hf} của path "${p.name}" có command nguy hiểm`,
           detail:
-            "Hook chạy với quyền của process MediaMTX. Tránh subshell, eval và download từ Internet. Kiểm tra nguồn command kỹ trước khi enable.",
+            "Path-level hook chạy với quyền của process MediaMTX. Hạn chế subshell, eval, download từ Internet, hoặc chạy lệnh không trusted.",
         })
       }
     }
@@ -146,15 +176,17 @@ interface SecurityWarningsProps {
 
 export function SecurityWarnings({ pollMs = 60_000 }: SecurityWarningsProps) {
   const [config, setConfig] = useState<GlobalConf | null>(null)
+  const [paths, setPaths] = useState<PathConf[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const c = await api.getGlobalConfig()
+        const [c, p] = await Promise.all([api.getGlobalConfig(), api.getPathConfigs().catch(() => [] as PathConf[])])
         if (!cancelled) {
           setConfig(c)
+          setPaths(p)
           setError(null)
         }
       } catch (e) {
@@ -174,7 +206,7 @@ export function SecurityWarnings({ pollMs = 60_000 }: SecurityWarningsProps) {
     }
   }, [pollMs])
 
-  const findings = useMemo(() => evaluateSecurity(config), [config])
+  const findings = useMemo(() => evaluateSecurity(config, paths), [config, paths])
 
   return (
     <Card>

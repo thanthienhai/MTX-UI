@@ -42,9 +42,11 @@ const DEFAULT_THRESHOLDS: Thresholds = {
 
 interface MetricsAlertsProps {
   pollMs?: number
+  /** Set false when MediaMTX `metrics` flag is off or permission `metrics` denied — skips polling and shows an info banner. */
+  enabled?: boolean
 }
 
-export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
+export function MetricsAlerts({ pollMs = 15_000, enabled = true }: MetricsAlertsProps) {
   const [error, setError] = useState<string | null>(null)
   const [hasSnapshot, setHasSnapshot] = useState(false)
   const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS)
@@ -59,6 +61,7 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
   thresholdsRef.current = thresholds
 
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     async function load() {
       try {
@@ -94,7 +97,7 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
     return () => {
       cancelled = true
     }
-  }, [pollMs])
+  }, [pollMs, enabled])
 
   const sevBadge = (s: AlertEntry["severity"]) => {
     const cls =
@@ -129,6 +132,11 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {!enabled && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-sm text-slate-700">
+            Metrics scraping đang tắt (MediaMTX config <code className="text-xs">metrics: no</code> hoặc tài khoản không có quyền <code className="text-xs">metrics</code>). Bật metrics để xem alert.
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <ThresholdInput
             label="Packet loss / s"

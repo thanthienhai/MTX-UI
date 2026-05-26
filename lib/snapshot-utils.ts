@@ -28,8 +28,13 @@ export function sanitizePathName(pathName: string): string | null {
   // Reject absolute paths
   if (clean.startsWith("/") || clean.startsWith("\\") || /^[a-zA-Z]:/.test(clean)) return null
 
-  // Only allow safe characters: alphanumeric, dashes, underscores, slashes, dots
-  if (!/^[\w\-. \/]+$/.test(clean)) return null
+  // Only allow safe characters: alphanumeric, dashes, underscores, slashes,
+  // dots and single spaces. Reject leading/trailing dot to avoid hidden files
+  // or Windows trailing-dot quirks, reject consecutive dots and consecutive
+  // separators.
+  if (!/^[A-Za-z0-9_][A-Za-z0-9._\- /]*[A-Za-z0-9_]$/.test(clean) && clean.length > 1) return null
+  if (clean.length === 1 && !/^[A-Za-z0-9_]$/.test(clean)) return null
+  if (/\.{2,}/.test(clean)) return null
 
   return clean
 }

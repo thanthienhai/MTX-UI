@@ -1687,7 +1687,10 @@ function MediaMTXDashboard() {
           </TabsContent>
 
           <TabsContent value="monitoring" className="space-y-6">
-            <MetricsAlerts pollMs={isPollingEnabled ? pollingIntervalMs : 0} />
+            <MetricsAlerts
+              pollMs={isPollingEnabled ? pollingIntervalMs : 0}
+              enabled={canUseMetrics && globalConfig?.metrics !== false}
+            />
             <Card>
               <CardHeader>
                 <CardTitle>Điều khiển refresh</CardTitle>

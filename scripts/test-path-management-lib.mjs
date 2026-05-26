@@ -258,3 +258,39 @@ const preview = buildImportPreviewPayload(
 assert.equal(preview.changed.maxReaders.to, 5)
 assert.equal(preview.changed.maxReaders.from, 10)
 assert.ok(preview.unchanged.includes("record"), "record is unchanged")
+
+// ── validateRecordPathTemplateStrict + getRecordPathTemplateHints ─────────
+const pathLib = await import("../lib/path-management.mjs")
+const { validateRecordPathTemplateStrict, getRecordPathTemplateHints, validateRecordPathTemplate } = pathLib
+
+// Strict: unknown tokens reject
+assert.equal(
+  validateRecordPathTemplateStrict("./rec/%path/%Z"),
+  validateRecordPathTemplateStrict("./rec/%path/%Z"),
+)
+assert.ok(validateRecordPathTemplateStrict("./rec/%path/%Z")?.includes("%Z"))
+
+// Strict: known tokens pass
+assert.equal(validateRecordPathTemplateStrict("./rec/%path/%Y-%m-%d_%H-%M-%S-%f"), null)
+assert.equal(validateRecordPathTemplateStrict(""), null)
+assert.equal(validateRecordPathTemplateStrict("./rec/anything-no-token"), null)
+
+// Hints: missing %path
+{
+  const hints = getRecordPathTemplateHints("./rec/%f.mp4")
+  assert.ok(hints.some((h) => h.includes("%path")))
+}
+// Hints: missing time variable
+{
+  const hints = getRecordPathTemplateHints("./rec/%path/file")
+  assert.ok(hints.some((h) => h.includes("biến thời gian")))
+}
+// Hints: clean template returns no hints
+assert.deepEqual(getRecordPathTemplateHints("./rec/%path/%Y-%m-%d_%H-%M-%S-%f"), [])
+
+// Legacy wrapper still returns first issue
+assert.equal(validateRecordPathTemplate("./rec/%path/%Y-%m-%d_%H-%M-%S-%f"), null)
+assert.ok(validateRecordPathTemplate("./rec/%Z")?.length)
+
+console.log("path-management: record template hints passed")
+
