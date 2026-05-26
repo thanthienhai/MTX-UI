@@ -604,12 +604,12 @@ Mục tiêu: xây dựng giao diện quản trị có thể khai thác gần đ�
 
 ## 27. Configuration Import / Export
 
-- [ ] Export global config JSON.
-- [ ] Export paths JSON.
+- [x] Export global config JSON.
+- [x] Export paths JSON.
 - [x] Export path defaults JSON.
-- [ ] Import config with validation.
-- [ ] Diff current vs imported.
-- [ ] Apply selected fields.
+- [x] Import config with validation.
+- [x] Diff current vs imported.
+- [x] Apply selected fields.
 - [ ] Download generated `mediamtx.yml` nếu cần.
 
 ## 28. Validation

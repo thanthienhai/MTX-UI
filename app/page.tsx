@@ -55,6 +55,7 @@ import { SnapshotGallery } from "@/components/snapshot-gallery"
 import { SnapshotThumbnail } from "@/components/snapshot-thumbnail"
 import { ReEncodingConfig } from "@/components/re-encoding-config"
 import { GuidesView } from "@/components/guides-view"
+import { ConfigImportExport } from "@/components/config-import-export"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -1627,6 +1628,7 @@ function MediaMTXDashboard() {
               username={username}
               appendAuditEvent={appendAuditEvent}
             />
+            <ConfigImportExport permissions={permissions} />
           </TabsContent>
 
           <TabsContent value="hooks" className="space-y-6">
