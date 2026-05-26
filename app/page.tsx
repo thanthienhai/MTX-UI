@@ -70,7 +70,10 @@ import { useRefreshPolling } from "@/hooks/use-refresh-polling"
 import { GlobalConfigView } from "@/components/global-config-view"
 import { ProtocolServerManagement } from "@/components/protocol-server-management"
 import { AuthConfigurationView } from "@/components/auth-configuration-view"
-import type { GlobalConf, HLSMuxer, PathConfig, Path as LivePath, Recording } from "@/lib/mediamtx-api"
+import { RecordingSettingsView } from "@/components/recording-settings-view"
+import { RecordingStatusView } from "@/components/recording-status-view"
+import { RemoteUploadConfig } from "@/components/remote-upload-config"
+import type { GlobalConf, HLSMuxer, PathConfig, Path as LivePath } from "@/lib/mediamtx-api"
 import {
   buildDashboardOverview,
   calculateBitrate,
@@ -118,7 +121,6 @@ function MediaMTXDashboard() {
   const [globalConfig, setGlobalConfig] = useState<GlobalConf | null>(null)
   const [pathDefaults, setPathDefaults] = useState<PathConfig | null>(null)
   const [hlsMuxers, setHlsMuxers] = useState<HLSMuxer[]>([])
-  const [recordings, setRecordings] = useState<Recording[]>([])
   const [protocolCounts, setProtocolCounts] = useState<Record<string, number>>({})
   const [auditEvents, setAuditEvents] = useState<DashboardAuditEvent[]>([])
   const [permissions, setPermissions] = useState<MediaMtxPermissionSet>(() => getSessionPermissions())
@@ -188,14 +190,13 @@ function MediaMTXDashboard() {
     setDashboardError(null)
     const startedAt = performance.now()
     try {
-      const [configsResult, liveResult, globalResult, defaultsResult, muxersResult, recordingResult] =
+      const [configsResult, liveResult, globalResult, defaultsResult, muxersResult] =
         await Promise.allSettled([
         api.getPathConfigs(),
         api.getPaths(),
         api.getGlobalConfig(),
         api.getPathDefaults(),
         api.getHlsMuxers(),
-        api.getRecordings(),
       ])
       const getValue = <T,>(result: PromiseSettledResult<T>, fallback: T) =>
         result.status === "fulfilled" ? result.value : fallback
@@ -204,7 +205,6 @@ function MediaMTXDashboard() {
       const global = getValue(globalResult, null)
       const defaults = getValue(defaultsResult, null)
       const muxers = getValue(muxersResult, [])
-      const recordingList = getValue(recordingResult, [])
       const rtspTlsEnabled = global?.rtsp === true && global.rtspEncryption !== "no"
       const rtmpTlsEnabled = global?.rtmp === true && global.rtmpEncryption !== "no"
       const protocolResults = await Promise.allSettled([
@@ -223,7 +223,6 @@ function MediaMTXDashboard() {
         globalResult,
         defaultsResult,
         muxersResult,
-        recordingResult,
         ...protocolResults,
       ].find((result) => result.status === "rejected") as PromiseRejectedResult | undefined
       const protocolLists = protocolResults.map((result) => getValue(result, null))
@@ -233,7 +232,6 @@ function MediaMTXDashboard() {
       setGlobalConfig(global)
       setPathDefaults(defaults)
       setHlsMuxers(muxers)
-      setRecordings(recordingList)
       setApiLatencyMs(Math.round(performance.now() - startedAt))
       setLastConfigUpdateAt(new Date().toISOString())
       setProtocolCounts({
@@ -488,33 +486,6 @@ function MediaMTXDashboard() {
         actor: username,
         action: "auth.jwks.refresh",
         target: "jwks",
-        result: "failure",
-        errorSummary: api.getMediaMtxErrorMessage(error),
-      })
-    }
-  }
-
-  const handleDeleteRecordingSegment = async (path: string, start: string) => {
-    try {
-      requireMediaMtxAction(permissions, "api")
-      requireMediaMtxAction(permissions, "read")
-      await api.deleteRecordingSegment({ path, start })
-      await fetchPaths()
-      notify({ type: "success", title: "Đã xóa segment ghi hình", message: path })
-      appendAuditEvent({
-        actor: username,
-        action: "recording.segment.delete",
-        target: path,
-        payloadSummary: JSON.stringify({ start }),
-        result: "success",
-      })
-    } catch (error) {
-      notifyError("Không thể xóa segment ghi hình", error)
-      appendAuditEvent({
-        actor: username,
-        action: "recording.segment.delete",
-        target: path,
-        payloadSummary: JSON.stringify({ start }),
         result: "failure",
         errorSummary: api.getMediaMtxErrorMessage(error),
       })
@@ -1522,104 +1493,20 @@ function MediaMTXDashboard() {
           </TabsContent>
 
           <TabsContent value="recording" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Cài đặt ghi hình</CardTitle>
-                <CardDescription>Cấu hình tùy chọn ghi hình stream</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="recordFormat">Định dạng ghi hình</Label>
-                      <Select defaultValue="fmp4">
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="fmp4">Fragmented MP4</SelectItem>
-                          <SelectItem value="mpegts">MPEG-TS</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="recordPath">Đường dẫn ghi hình</Label>
-                      <Input defaultValue="./recordings/%path/%Y-%m-%d_%H-%M-%S-%f" />
-                      <p className="text-xs text-muted-foreground">
-                        Biến: %path, %Y %m %d (ngày), %H %M %S (giờ)
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="segmentDuration">Thời lượng segment</Label>
-                      <Input defaultValue="1h" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="partDuration">Thời lượng part</Label>
-                      <Input defaultValue="1s" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="maxPartSize">Kích thước part tối đa</Label>
-                      <Input defaultValue="50M" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="deleteAfter">Xóa sau</Label>
-                      <Input defaultValue="1d" />
-                      <p className="text-xs text-muted-foreground">Đặt 0s để tắt tự động xóa</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Trạng thái ghi hình</CardTitle>
-                <CardDescription>Các phiên ghi hình hiện tại</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isLoadingPaths ? (
-                  <LoadingState label="Đang tải ghi hình..." />
-                ) : dashboardError ? (
-                  <ErrorState message={dashboardError} onRetry={() => polling.refresh().catch(() => undefined)} />
-                ) : recordings.length === 0 ? (
-                  <EmptyState icon={<Play className="h-12 w-12 opacity-50" />} title="Chưa có ghi hình" />
-                ) : (
-                  <div className="space-y-4">
-                    {recordings.map((recording) => {
-                      const firstSegmentStart = recording.segments?.[0]?.start
-                      return (
-                      <div key={recording.name} className="flex items-center justify-between rounded-lg border p-4">
-                        <div className="flex items-center space-x-4">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-100">
-                            <Play className="h-5 w-5 text-red-600" />
-                          </div>
-                          <div>
-                            <h3 className="font-medium">{recording.name}</h3>
-                            <p className="text-sm text-gray-500">{recording.segments?.length || 0} segment</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary">Đã ghi</Badge>
-                          {firstSegmentStart && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!canUseApi || !canRead}
-                              onClick={() => handleDeleteRecordingSegment(recording.name, firstSegmentStart)}
-                            >
-                              Xóa segment đầu
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    )})}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <RecordingSettingsView
+              permissions={permissions}
+              username={username}
+              appendAuditEvent={appendAuditEvent}
+            />
+            <RecordingStatusView
+              permissions={permissions}
+              username={username}
+              appendAuditEvent={appendAuditEvent}
+              pollingRefresh={polling}
+            />
+            <RemoteUploadConfig
+              permissions={permissions}
+            />
           </TabsContent>
 
           <TabsContent value="monitoring" className="space-y-6">

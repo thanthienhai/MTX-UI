@@ -185,7 +185,7 @@ export function PathDefaultsEditor({
       )
     }
 
-    if (entry.type === "duration") {
+    if (entry.type === "duration" || entry.type === "size") {
       return (
         <div key={field} className="space-y-2">
           <Label htmlFor={common.id}>{entry.label}</Label>
@@ -194,7 +194,7 @@ export function PathDefaultsEditor({
             type="text"
             value={typeof value === "string" ? value : ""}
             onChange={(e) => updateField(field, e.target.value)}
-            placeholder={entry.placeholder || "10s"}
+            placeholder={entry.placeholder || (entry.type === "duration" ? "10s" : "50M")}
           />
           {entry.description && <p className="text-xs text-muted-foreground">{entry.description}</p>}
           {error && <p className="text-xs text-[#cf202f]">{error}</p>}

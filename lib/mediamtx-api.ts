@@ -185,6 +185,7 @@ export interface PathConf extends JsonObject {
   recordPartDuration?: string
   recordSegmentDuration?: string
   recordDeleteAfter?: string
+  recordMaxPartSize?: string
   overridePublisher?: boolean
   useAbsoluteTimestamp?: boolean
   srtReadPassphrase?: string

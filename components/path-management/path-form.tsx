@@ -113,6 +113,7 @@ export function PathForm({
   const [recordPartDuration, setRecordPartDuration] = useState("1s")
   const [recordSegmentDuration, setRecordSegmentDuration] = useState("1h")
   const [recordDeleteAfter, setRecordDeleteAfter] = useState("0s")
+  const [recordMaxPartSize, setRecordMaxPartSize] = useState("50M")
 
   // RPi Camera fields
   const [rpiCameraCamID, setRpiCameraCamID] = useState(0)
@@ -151,6 +152,7 @@ export function PathForm({
       setRecordPartDuration(initialPath.recordPartDuration || "1s")
       setRecordSegmentDuration(initialPath.recordSegmentDuration || "1h")
       setRecordDeleteAfter(initialPath.recordDeleteAfter || "0s")
+      setRecordMaxPartSize(initialPath.recordMaxPartSize || "50M")
 
       // RPi Camera
       const ip = initialPath as Record<string, unknown>
@@ -200,6 +202,7 @@ export function PathForm({
     setRecordPartDuration("1s")
     setRecordSegmentDuration("1h")
     setRecordDeleteAfter("0s")
+    setRecordMaxPartSize("50M")
     setRpiCameraCamID(0)
     setRpiCameraWidth(1920)
     setRpiCameraHeight(1080)
@@ -290,6 +293,7 @@ export function PathForm({
       if (recordPartDuration) base.recordPartDuration = recordPartDuration
       if (recordSegmentDuration) base.recordSegmentDuration = recordSegmentDuration
       if (recordDeleteAfter) base.recordDeleteAfter = recordDeleteAfter
+      if (recordMaxPartSize) base.recordMaxPartSize = recordMaxPartSize
     }
 
     return base
@@ -691,6 +695,18 @@ export function PathForm({
                     onChange={(e) => setRecordSegmentDuration(e.target.value)}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="recordMaxPartSize">Kích thước part tối đa</Label>
+                  <Input
+                    id="recordMaxPartSize"
+                    value={recordMaxPartSize}
+                    onChange={(e) => setRecordMaxPartSize(e.target.value)}
+                    placeholder="50M"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="recordDeleteAfter">Xóa sau</Label>
                   <Input
