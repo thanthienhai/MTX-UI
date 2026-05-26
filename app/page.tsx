@@ -56,6 +56,8 @@ import { SnapshotThumbnail } from "@/components/snapshot-thumbnail"
 import { ReEncodingConfig } from "@/components/re-encoding-config"
 import { GuidesView } from "@/components/guides-view"
 import { ConfigImportExport } from "@/components/config-import-export"
+import { SecurityWarnings } from "@/components/security-warnings"
+import { AbsoluteTimestampsInfo } from "@/components/absolute-timestamps-info"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -1171,9 +1173,11 @@ function MediaMTXDashboard() {
                 )}
               </CardContent>
             </Card>
+            <SecurityWarnings />
           </TabsContent>
 
           <TabsContent value="server" className="space-y-6">
+            <AbsoluteTimestampsInfo />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
