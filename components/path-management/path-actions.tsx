@@ -8,6 +8,7 @@ import {
   Eye,
   LinkIcon,
   Play,
+  Radio,
   Shield,
   XCircle,
 } from "lucide-react"
@@ -25,6 +26,7 @@ import {
 } from "@/components/ui/dialog"
 import { EmptyState, LoadingState } from "@/components/module-state"
 import { StreamPlayer } from "@/components/stream-player"
+import { WHEPPlayer } from "@/components/whep-player"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
 import type { Path, PathReader, KickResolution } from "@/lib/mediamtx-api"
@@ -66,6 +68,7 @@ export function PathActions({
   const canPublish = permissions.publish !== false
 
   const [showPreview, setShowPreview] = useState(false)
+  const [showWebRtcPreview, setShowWebRtcPreview] = useState(false)
   const [kickTarget, setKickTarget] = useState<KickResolution | null>(null)
   const [isKicking, setIsKicking] = useState(false)
 
@@ -182,21 +185,43 @@ export function PathActions({
                 {!isRegex && !isAllOthers && `URL streaming cho path "${pathName}"`}
               </CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowPreview((v) => !v)}
-              disabled={!canRead}
-            >
-              <Eye className="mr-2 h-4 w-4" />
-              {showPreview ? "Ẩn preview" : "Live preview"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowPreview((v) => !v)
+                  setShowWebRtcPreview(false)
+                }}
+                disabled={!canRead}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                {showPreview ? "Ẩn preview" : "Live preview"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowWebRtcPreview((v) => !v)
+                  setShowPreview(false)
+                }}
+                disabled={!canRead}
+              >
+                <Radio className="mr-2 h-4 w-4" />
+                {showWebRtcPreview ? "Ẩn WebRTC" : "WebRTC"}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {showPreview && runtimePath.ready && canRead && (
             <div className="mb-4">
               <StreamPlayer pathName={pathName} />
+            </div>
+          )}
+          {showWebRtcPreview && runtimePath.ready && canRead && (
+            <div className="mb-4">
+              <WHEPPlayer pathName={pathName} />
             </div>
           )}
 

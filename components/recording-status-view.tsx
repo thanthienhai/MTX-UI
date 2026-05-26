@@ -59,11 +59,20 @@ function formatTime(iso: string): string {
   }
 }
 
+interface RetentionInfo {
+  isConfigured: boolean
+  deleteAfterLabel: string
+  segmentEndTime: string | null
+  remainingSeconds: number | null
+  isExpired: boolean
+}
+
 interface RecordingPathStatus {
   pathName: string
   isRecording: boolean
   isLive: boolean
   recording: Recording | null
+  retention: RetentionInfo
 }
 
 export function RecordingStatusView({ permissions, username, appendAuditEvent, pollingRefresh }: RecordingStatusViewProps) {
@@ -74,6 +83,7 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
   const [paths, setPaths] = useState<PathConf[]>([])
   const [livePaths, setLivePaths] = useState<Path[]>([])
   const [recordings, setRecordings] = useState<Recording[]>([])
+  const [recordDeleteAfter, setRecordDeleteAfter] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ path: string; start: string } | null>(null)
@@ -83,14 +93,16 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
     setIsLoading(true)
     setLoadError(null)
     try {
-      const [configs, live, recordingList] = await Promise.all([
+      const [configs, live, recordingList, defaults] = await Promise.all([
         api.getPathConfigs(),
         api.getPaths(),
         api.getRecordings(),
+        api.getPathDefaults().catch(() => null),
       ])
       setPaths(configs.filter((p) => p.record === true))
       setLivePaths(live)
       setRecordings(recordingList)
+      setRecordDeleteAfter(defaults?.recordDeleteAfter ?? null)
     } catch (error) {
       setLoadError(api.getMediaMtxErrorMessage(error))
       notify({ type: "error", title: "Không thể tải trạng thái ghi hình", message: api.getMediaMtxErrorMessage(error) })
@@ -103,15 +115,59 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
     fetchData()
   }, [fetchData])
 
+  function computeRetention(
+    latestSegmentStart: string | null,
+    latestSegmentDuration: number,
+  ): RetentionInfo {
+    if (!recordDeleteAfter || !latestSegmentStart) {
+      return {
+        isConfigured: false,
+        deleteAfterLabel: "Không có tự động xóa",
+        segmentEndTime: null,
+        remainingSeconds: null,
+        isExpired: false,
+      }
+    }
+    const deleteAfterSeconds = parseDuration(recordDeleteAfter)
+    if (deleteAfterSeconds <= 0) {
+      return {
+        isConfigured: true,
+        deleteAfterLabel: `${recordDeleteAfter} (tự động xóa tắt)`,
+        segmentEndTime: null,
+        remainingSeconds: null,
+        isExpired: false,
+      }
+    }
+    const segmentStartMs = new Date(latestSegmentStart).getTime()
+    const segmentEndMs = segmentStartMs + latestSegmentDuration * 1000
+    const deletionTimeMs = segmentEndMs + deleteAfterSeconds * 1000
+    const now = Date.now()
+    const remainingMs = deletionTimeMs - now
+    const remainingSeconds = remainingMs / 1000
+    return {
+      isConfigured: true,
+      deleteAfterLabel: formatDuration(deleteAfterSeconds),
+      segmentEndTime: new Date(segmentEndMs).toISOString(),
+      remainingSeconds,
+      isExpired: remainingSeconds <= 0,
+    }
+  }
+
   const recordingStatuses: RecordingPathStatus[] = paths.map((p) => {
     const livePath = livePaths.find((lp) => lp.name === p.name)
     const recording = recordings.find((r) => r.name === p.name) || null
     const isLive = livePath?.ready === true && livePath.source !== null
+    const segments = recording?.segments || []
+    const latestSegment = segments.length > 0 ? segments[segments.length - 1] : null
     return {
       pathName: p.name,
       isRecording: isLive && p.record === true,
       isLive,
       recording,
+      retention: computeRetention(
+        latestSegment?.start ?? null,
+        latestSegment?.duration ?? 0,
+      ),
     }
   })
 
@@ -194,8 +250,11 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
                 const segStart = latestSegment ? latestSegment.start : null
                 const pathDuration = segments.reduce((sum, s) => sum + s.duration, 0)
                 const estimatedSize = formatEstimatedSize(pathDuration)
+                const ret = status.retention
 
-                const retentionWarning = status.pathName
+                const remainingLabel = ret.remainingSeconds !== null && !ret.isExpired
+                  ? `Còn ${formatDuration(ret.remainingSeconds)}`
+                  : null
 
                 return (
                   <div key={status.pathName} className="flex items-start justify-between rounded-lg border p-4">
@@ -220,7 +279,7 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
                       </div>
 
                       {segments.length > 0 && (
-                        <div className="ml-12 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                        <div className="ml-12 grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
                           <div>
                             <span className="text-gray-500">Segment mới nhất: </span>
                             <span className="font-medium">{segStart ? formatTime(segStart) : "N/A"}</span>
@@ -231,6 +290,24 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
                             <span className="font-medium">{estimatedSize}</span>
                             <span className="text-xs text-gray-400 ml-1">(*)</span>
                           </div>
+                          <div>
+                            <span className="text-gray-500">Giữ lại: </span>
+                            {ret.isConfigured ? (
+                              <>
+                                {ret.isExpired ? (
+                                  <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[11px]">
+                                    Đã quá hạn xóa
+                                  </Badge>
+                                ) : remainingLabel ? (
+                                  <span className="font-medium text-green-600">{remainingLabel}</span>
+                                ) : (
+                                  <span className="text-gray-500">{ret.deleteAfterLabel}</span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-gray-500">{ret.deleteAfterLabel}</span>
+                            )}
+                          </div>
                           <div className="flex justify-end">
                             {hasSegments && (
                               <Button
@@ -238,7 +315,7 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
                                 variant="outline"
                                 className="text-[#cf202f] border-[#cf202f]/30 hover:bg-[#cf202f]/5"
                                 disabled={!canUseApi || !canRead || isDeleting}
-                                onClick={() => setDeleteConfirm({ path: retentionWarning, start: segments[0].start })}
+                                onClick={() => setDeleteConfirm({ path: status.pathName, start: segments[0].start })}
                               >
                                 <Trash2 className="mr-1 h-4 w-4" />
                                 Xóa segment đầu

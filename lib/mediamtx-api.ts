@@ -157,6 +157,13 @@ export interface GlobalConf extends JsonObject {
   metricsAddress?: string
   pprof?: boolean
   pprofAddress?: string
+  playback?: boolean
+  playbackAddress?: string
+  playbackEncryption?: boolean
+  playbackServerKey?: string
+  playbackServerCert?: string
+  playbackAllowOrigin?: string
+  playbackTrustedProxies?: string[]
   authMethod?: "internal" | "http" | "jwt" | string
   authInternalUsers?: AuthInternalUser[]
   authHTTPAddress?: string
@@ -174,6 +181,8 @@ export interface GlobalConf extends JsonObject {
 export interface PathConf extends JsonObject {
   name: string
   source: string
+  runOnReady?: string
+  runOnReadyRestart?: boolean
   sourceFingerprint?: string
   sourceOnDemand?: boolean
   sourceOnDemandStartTimeout?: string

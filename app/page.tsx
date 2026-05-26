@@ -46,6 +46,10 @@ import {
 import { ProtectedRoute } from "@/components/protected-route"
 import { clearAuth, getDashboardSession, getSessionPermissions, getUsername } from "@/lib/auth"
 import { StreamPlayer } from "@/components/stream-player"
+import { WHEPPlayer } from "@/components/whep-player"
+import { MultiViewPlayer } from "@/components/multi-view-player"
+import { SnapshotConfig } from "@/components/snapshot-config"
+import { SnapshotGallery } from "@/components/snapshot-gallery"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -73,6 +77,7 @@ import { AuthConfigurationView } from "@/components/auth-configuration-view"
 import { RecordingSettingsView } from "@/components/recording-settings-view"
 import { RecordingStatusView } from "@/components/recording-status-view"
 import { RemoteUploadConfig } from "@/components/remote-upload-config"
+import { PlaybackView } from "@/components/playback-view"
 import type { GlobalConf, HLSMuxer, PathConfig, Path as LivePath } from "@/lib/mediamtx-api"
 import {
   buildDashboardOverview,
@@ -80,6 +85,8 @@ import {
   formatBitsPerSecond,
   getTrafficTotals,
 } from "@/lib/dashboard-overview.mjs"
+import { ProxyConfig } from "@/components/proxy-config"
+import { isUpstreamSourceUrl } from "@/lib/path-management.mjs"
 
 function MediaMTXDashboard() {
   const router = useRouter()
@@ -139,6 +146,7 @@ function MediaMTXDashboard() {
   const [isPollingEnabled, setIsPollingEnabled] = useState(true)
   const [pollingIntervalMs, setPollingIntervalMs] = useState(10000)
   const [selectedStreamPath, setSelectedStreamPath] = useState<string | null>(null)
+  const [selectedStreamPathWebRTC, setSelectedStreamPathWebRTC] = useState<string | null>(null)
   const [editingPath, setEditingPath] = useState<PathConfig | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -161,6 +169,17 @@ function MediaMTXDashboard() {
     overridePublisher: true,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Proxy dialog state
+  const [isProxyDialogOpen, setIsProxyDialogOpen] = useState(false)
+  const [editingProxyPath, setEditingProxyPath] = useState<PathConfig | null>(null)
+  const [proxyNewPathName, setProxyNewPathName] = useState("")
+  const [proxySource, setProxySource] = useState("")
+  const [proxySourceOnDemand, setProxySourceOnDemand] = useState(true)
+  const [proxySourceOnDemandStartTimeout, setProxySourceOnDemandStartTimeout] = useState("10s")
+  const [proxySourceOnDemandCloseAfter, setProxySourceOnDemandCloseAfter] = useState("10s")
+  const [proxySourceFingerprint, setProxySourceFingerprint] = useState("")
+
   const previousTrafficSampleRef = useRef<{ timestamp: number; bytesReceived: number; bytesSent: number } | null>(null)
 
   useEffect(() => {
@@ -474,6 +493,80 @@ function MediaMTXDashboard() {
     }
   }
 
+  const handleSaveProxyPath = async () => {
+    if (!proxyNewPathName.trim()) {
+      notify({ type: "error", title: "Cần nhập tên proxy path" })
+      return
+    }
+    if (!proxySource.trim()) {
+      notify({ type: "error", title: "Cần nhập source URL" })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      requireMediaMtxAction(permissions, "api")
+      if (editingProxyPath) {
+        await api.updatePath(editingProxyPath.name, {
+          ...editingProxyPath,
+          source: proxySource,
+          sourceOnDemand: proxySourceOnDemand,
+          sourceOnDemandStartTimeout: proxySourceOnDemandStartTimeout,
+          sourceOnDemandCloseAfter: proxySourceOnDemandCloseAfter,
+          sourceFingerprint: proxySourceFingerprint,
+        } as PathConfig)
+        notify({ type: "success", title: "Đã cập nhật proxy path", message: editingProxyPath.name })
+        appendAuditEvent({
+          actor: username,
+          action: "path.update",
+          target: editingProxyPath.name,
+          payloadSummary: JSON.stringify({ source: proxySource, sourceOnDemand: proxySourceOnDemand }),
+          result: "success",
+        })
+      } else {
+        await api.addPath({
+          name: proxyNewPathName.trim(),
+          source: proxySource,
+          sourceOnDemand: proxySourceOnDemand,
+          sourceOnDemandStartTimeout: proxySourceOnDemandStartTimeout,
+          sourceOnDemandCloseAfter: proxySourceOnDemandCloseAfter,
+          sourceFingerprint: proxySourceFingerprint,
+          record: false,
+          overridePublisher: true,
+        } as PathConfig)
+        notify({ type: "success", title: "Đã thêm proxy path", message: proxyNewPathName.trim() })
+        appendAuditEvent({
+          actor: username,
+          action: "path.add",
+          target: proxyNewPathName.trim(),
+          payloadSummary: JSON.stringify({ source: proxySource, sourceOnDemand: proxySourceOnDemand }),
+          result: "success",
+        })
+      }
+      await fetchPaths()
+      setIsProxyDialogOpen(false)
+      setProxyNewPathName("")
+      setProxySource("")
+      setProxySourceOnDemand(true)
+      setProxySourceOnDemandStartTimeout("10s")
+      setProxySourceOnDemandCloseAfter("10s")
+      setProxySourceFingerprint("")
+      setEditingProxyPath(null)
+    } catch (error) {
+      console.error("Error saving proxy path:", error)
+      notifyError("Không thể lưu proxy path", error)
+      appendAuditEvent({
+        actor: username,
+        action: editingProxyPath ? "path.update" : "path.add",
+        target: editingProxyPath?.name || proxyNewPathName.trim(),
+        result: "failure",
+        errorSummary: api.getMediaMtxErrorMessage(error),
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const handleRefreshJwks = async () => {
     try {
       requireMediaMtxAction(permissions, "api")
@@ -665,12 +758,29 @@ function MediaMTXDashboard() {
               size="icon"
               variant="outline"
               className="rounded-full"
-              onClick={() => setSelectedStreamPath(selectedStreamPath === path.name ? null : path.name)}
+              onClick={() => {
+                setSelectedStreamPath(selectedStreamPath === path.name ? null : path.name)
+                setSelectedStreamPathWebRTC(null)
+              }}
               disabled={!canPlayback}
-              title="Preview stream"
+              title="Preview HLS"
             >
               <Eye className="h-4 w-4" />
             </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => {
+                setSelectedStreamPathWebRTC(selectedStreamPathWebRTC === path.name ? null : path.name)
+                setSelectedStreamPath(null)
+              }}
+              disabled={!canRead}
+              title="Preview WebRTC"
+            >
+              <Radio className="h-4 w-4" />
+            </Button>
+            <SnapshotGallery pathName={path.name} />
             <Button
               size="icon"
               variant="outline"
@@ -696,6 +806,11 @@ function MediaMTXDashboard() {
         {selectedStreamPath === path.name && status.isLive && canPlayback && (
           <div className="border-t border-[#eef0f3] px-4 pb-4 pt-4">
             <StreamPlayer pathName={path.name} />
+          </div>
+        )}
+        {selectedStreamPathWebRTC === path.name && status.isLive && canRead && (
+          <div className="border-t border-[#eef0f3] px-4 pb-4 pt-4">
+            <WHEPPlayer pathName={path.name} />
           </div>
         )}
       </div>
@@ -828,7 +943,7 @@ function MediaMTXDashboard() {
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Tabs defaultValue="overview" className="space-y-8">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-4 lg:grid-cols-8">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-5 lg:grid-cols-10">
             <TabsTrigger value="overview" className="rounded-full py-2 data-[state=active]:bg-white">
               <Monitor className="w-4 h-4" />
               <span>Tổng quan</span>
@@ -840,6 +955,10 @@ function MediaMTXDashboard() {
             <TabsTrigger value="paths" className="rounded-full py-2 data-[state=active]:bg-white">
               <Video className="w-4 h-4" />
               <span>Paths</span>
+            </TabsTrigger>
+            <TabsTrigger value="live-players" className="rounded-full py-2 data-[state=active]:bg-white">
+              <VideoIcon className="w-4 h-4" />
+              <span>Live Players</span>
             </TabsTrigger>
             <TabsTrigger value="config" className="rounded-full py-2 data-[state=active]:bg-white">
               <Settings className="w-4 h-4" />
@@ -860,6 +979,10 @@ function MediaMTXDashboard() {
             <TabsTrigger value="monitoring" className="rounded-full py-2 data-[state=active]:bg-white">
               <Activity className="w-4 h-4" />
               <span>Giám sát</span>
+            </TabsTrigger>
+            <TabsTrigger value="proxy" className="rounded-full py-2 data-[state=active]:bg-white">
+              <Globe className="w-4 h-4" />
+              <span>Proxy</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1465,6 +1588,23 @@ function MediaMTXDashboard() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="live-players" className="space-y-6">
+            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+              <CardHeader>
+                <CardTitle>Live Players</CardTitle>
+                <CardDescription>
+                  View multiple live streams simultaneously in a configurable grid layout.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <MultiViewPlayer
+                  livePaths={livePaths}
+                  isWebRTCEnabled={config.webrtc ?? false}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="config" className="space-y-6">
             <GlobalConfigView
               permissions={permissions}
@@ -1506,6 +1646,12 @@ function MediaMTXDashboard() {
             />
             <RemoteUploadConfig
               permissions={permissions}
+            />
+            <PlaybackView
+              permissions={permissions}
+              username={username}
+              appendAuditEvent={appendAuditEvent}
+              pollingRefresh={polling}
             />
           </TabsContent>
 
@@ -1808,8 +1954,154 @@ function MediaMTXDashboard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ── Proxy Tab ─────────────────────────────────────────────────────── */}
+          <TabsContent value="proxy" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Proxy Paths</h2>
+                <p className="text-sm text-muted-foreground">
+                  Quản lý các path pull từ nguồn upstream qua RTSP, RTMP, HLS, SRT
+                </p>
+              </div>
+              <Button onClick={() => { setProxyNewPathName(""); setProxySource(""); setProxySourceOnDemand(true); setProxySourceOnDemandStartTimeout("10s"); setProxySourceOnDemandCloseAfter("10s"); setProxySourceFingerprint(""); setEditingProxyPath(null); setIsProxyDialogOpen(true); }}>
+                <Globe className="w-4 h-4 mr-2" />
+                Thêm Proxy Path
+              </Button>
+            </div>
+
+            <Card>
+              <CardContent className="p-6">
+                {paths.filter((p) => isUpstreamSourceUrl(p.source)).length === 0 ? (
+                  <div className="text-center py-12">
+                    <Globe className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+                    <h3 className="text-lg font-medium mb-1">Chưa có proxy path nào</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Thêm path mới kết nối tới nguồn upstream từ RTSP camera, HLS playlist, RTMP server...
+                    </p>
+                    <Button variant="outline" onClick={() => { setProxyNewPathName(""); setProxySource(""); setProxySourceOnDemand(true); setProxySourceOnDemandStartTimeout("10s"); setProxySourceOnDemandCloseAfter("10s"); setProxySourceFingerprint(""); setEditingProxyPath(null); setIsProxyDialogOpen(true); }}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Tạo proxy path
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {paths
+                      .filter((p) => isUpstreamSourceUrl(p.source))
+                      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                      .map((proxyPath) => {
+                        const livePath = livePaths.find((lp) => lp.name === proxyPath.name)
+                        const isOnline = livePath?.readers && livePath.readers.length > 0
+                        return (
+                          <div
+                            key={proxyPath.name}
+                            className="flex items-center justify-between rounded-lg border p-4"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${isOnline ? "bg-green-500" : "bg-gray-300"}`} />
+                                <span className="font-medium truncate">{proxyPath.name}</span>
+                                {proxyPath.sourceOnDemand && (
+                                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                    On Demand
+                                  </Badge>
+                                )}
+                              </div>
+                              <code className="mt-1 block text-xs text-muted-foreground truncate">
+                                {proxyPath.source}
+                              </code>
+                            </div>
+                            <div className="flex items-center gap-1 ml-4 shrink-0">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8"
+                                onClick={() => {
+                                  setEditingProxyPath(proxyPath)
+                                  setProxyNewPathName(proxyPath.name)
+                                  setProxySource(proxyPath.source || "")
+                                  setProxySourceOnDemand(proxyPath.sourceOnDemand ?? true)
+                                  setProxySourceOnDemandStartTimeout(proxyPath.sourceOnDemandStartTimeout || "10s")
+                                  setProxySourceOnDemandCloseAfter(proxyPath.sourceOnDemandCloseAfter || "10s")
+                                  setProxySourceFingerprint(proxyPath.sourceFingerprint || "")
+                                  setIsProxyDialogOpen(true)
+                                }}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-[#cf202f]"
+                                onClick={async () => {
+                                  try {
+                                    requireMediaMtxAction(permissions, "api")
+                                    await api.deletePath(proxyPath.name)
+                                    await fetchPaths()
+                                    notify({ type: "success", title: `Đã xóa proxy path "${proxyPath.name}"` })
+                                  } catch (err) {
+                                    notifyError("Không thể xóa proxy path", err)
+                                  }
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* ── Proxy Dialog ──────────────────────────────────────────────────────── */}
+      <Dialog open={isProxyDialogOpen} onOpenChange={setIsProxyDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingProxyPath ? `Chỉnh sửa proxy: ${editingProxyPath.name}` : "Thêm proxy path mới"}</DialogTitle>
+            <DialogDescription>
+              Cấu hình path để pull luồng từ nguồn upstream bên ngoài
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="proxyPathName">Tên path</Label>
+              <Input
+                id="proxyPathName"
+                placeholder="e.g., camera/hallway"
+                value={proxyNewPathName}
+                onChange={(e) => setProxyNewPathName(e.target.value)}
+                disabled={!!editingProxyPath}
+              />
+            </div>
+            <ProxyConfig
+              source={proxySource}
+              sourceOnDemand={proxySourceOnDemand}
+              sourceOnDemandStartTimeout={proxySourceOnDemandStartTimeout}
+              sourceOnDemandCloseAfter={proxySourceOnDemandCloseAfter}
+              sourceFingerprint={proxySourceFingerprint}
+              pathName={proxyNewPathName}
+              onSourceChange={setProxySource}
+              onSourceOnDemandChange={setProxySourceOnDemand}
+              onSourceOnDemandStartTimeoutChange={setProxySourceOnDemandStartTimeout}
+              onSourceOnDemandCloseAfterChange={setProxySourceOnDemandCloseAfter}
+              onSourceFingerprintChange={setProxySourceFingerprint}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsProxyDialogOpen(false)}>
+              Hủy
+            </Button>
+            <Button onClick={handleSaveProxyPath} disabled={!proxyNewPathName.trim() || !proxySource.trim()}>
+              {editingProxyPath ? "Cập nhật" : "Tạo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -1886,6 +2178,14 @@ function MediaMTXDashboard() {
                   </div>
                 </div>
               )}
+
+              <Separator />
+
+              <SnapshotConfig
+                value={editingPath.runOnReady || ""}
+                onChange={(cmd) => setEditingPath({ ...editingPath, runOnReady: cmd, runOnReadyRestart: cmd.length > 0 })}
+                pathName={editingPath.name}
+              />
             </div>
           )}
           <DialogFooter>

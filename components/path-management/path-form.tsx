@@ -27,6 +27,8 @@ import * as api from "@/lib/mediamtx-api"
 import type { PathConf } from "@/lib/mediamtx-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 import { getFieldsForSourceType, detectSourceType } from "@/lib/path-management.mjs"
+import { ForwardingConfig } from "@/components/forwarding-config"
+import { ProxyConfig } from "@/components/proxy-config"
 
 type PathNameMode = "normal" | "regex" | "all_others"
 type SourceType =
@@ -115,6 +117,10 @@ export function PathForm({
   const [recordDeleteAfter, setRecordDeleteAfter] = useState("0s")
   const [recordMaxPartSize, setRecordMaxPartSize] = useState("50M")
 
+  // Forwarding fields
+  const [runOnReady, setRunOnReady] = useState("")
+  const [runOnReadyRestart, setRunOnReadyRestart] = useState(true)
+
   // RPi Camera fields
   const [rpiCameraCamID, setRpiCameraCamID] = useState(0)
   const [rpiCameraWidth, setRpiCameraWidth] = useState(1920)
@@ -128,6 +134,7 @@ export function PathForm({
   // Redirect source
   const [sourceRedirect, setSourceRedirect] = useState("")
 
+  const [showAdvancedProxy, setShowAdvancedProxy] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
@@ -153,6 +160,10 @@ export function PathForm({
       setRecordSegmentDuration(initialPath.recordSegmentDuration || "1h")
       setRecordDeleteAfter(initialPath.recordDeleteAfter || "0s")
       setRecordMaxPartSize(initialPath.recordMaxPartSize || "50M")
+
+      // Forwarding
+      setRunOnReady(initialPath.runOnReady || "")
+      setRunOnReadyRestart(initialPath.runOnReadyRestart ?? true)
 
       // RPi Camera
       const ip = initialPath as Record<string, unknown>
@@ -203,6 +214,8 @@ export function PathForm({
     setRecordSegmentDuration("1h")
     setRecordDeleteAfter("0s")
     setRecordMaxPartSize("50M")
+    setRunOnReady("")
+    setRunOnReadyRestart(true)
     setRpiCameraCamID(0)
     setRpiCameraWidth(1920)
     setRpiCameraHeight(1080)
@@ -240,6 +253,11 @@ export function PathForm({
 
     if (sourceOnDemandCloseAfter && !/^\d+(ms|s|m|h|d)?$/.test(sourceOnDemandCloseAfter)) {
       errors.sourceOnDemandCloseAfter = "Phải là duration hợp lệ (vd: 10s, 5m)"
+    }
+
+    // Forwarding validation
+    if (runOnReady && !runOnReady.trim()) {
+      errors.runOnReady = "Command forward không được để trống"
     }
 
     setFieldErrors(errors)
@@ -294,6 +312,12 @@ export function PathForm({
       if (recordSegmentDuration) base.recordSegmentDuration = recordSegmentDuration
       if (recordDeleteAfter) base.recordDeleteAfter = recordDeleteAfter
       if (recordMaxPartSize) base.recordMaxPartSize = recordMaxPartSize
+    }
+
+    // Forwarding
+    if (runOnReady) {
+      base.runOnReady = runOnReady
+      base.runOnReadyRestart = runOnReadyRestart
     }
 
     return base
@@ -488,6 +512,37 @@ export function PathForm({
                 {detectedSourceType === "webRTCSource" && "URL WHEP endpoint"}
               </p>
               {fieldErrors.source && <p className="text-xs text-[#cf202f]">{fieldErrors.source}</p>}
+            </div>
+          )}
+
+          {/* Advanced Proxy Configuration (for upstream URL sources) */}
+          {showSourceUrl && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowAdvancedProxy(!showAdvancedProxy)}
+                className="flex w-full items-center justify-between rounded-lg border bg-[#f7f8fa] px-4 py-2 text-sm font-medium hover:bg-[#eef0f3]"
+              >
+                <span>Proxy Configuration (Templates, OnDemand, Fingerprint)</span>
+                <span className={`transition-transform ${showAdvancedProxy ? "rotate-180" : ""}`}>▼</span>
+              </button>
+              {showAdvancedProxy && (
+                <div className="rounded-lg border p-4">
+                  <ProxyConfig
+                    source={source}
+                    sourceOnDemand={sourceOnDemand}
+                    sourceOnDemandStartTimeout={sourceOnDemandStartTimeout}
+                    sourceOnDemandCloseAfter={sourceOnDemandCloseAfter}
+                    sourceFingerprint={sourceFingerprint}
+                    pathName={name}
+                    onSourceChange={setSource}
+                    onSourceOnDemandChange={setSourceOnDemand}
+                    onSourceOnDemandStartTimeoutChange={setSourceOnDemandStartTimeout}
+                    onSourceOnDemandCloseAfterChange={setSourceOnDemandCloseAfter}
+                    onSourceFingerprintChange={setSourceFingerprint}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -718,6 +773,22 @@ export function PathForm({
               </div>
             </div>
           )}
+
+          <Separator />
+
+          {/* Forwarding Section */}
+          <div className="space-y-4">
+            <ForwardingConfig
+              command={runOnReady}
+              restart={runOnReadyRestart}
+              onCommandChange={(cmd) => setRunOnReady(cmd)}
+              onRestartChange={(restart) => setRunOnReadyRestart(restart)}
+              pathName={name || (initialPath?.name || "")}
+            />
+            {fieldErrors.runOnReady && (
+              <p className="text-xs text-[#cf202f] ml-6">{fieldErrors.runOnReady}</p>
+            )}
+          </div>
 
           <Separator />
 
