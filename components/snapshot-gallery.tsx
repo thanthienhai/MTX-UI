@@ -12,6 +12,12 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ImageIcon, Download, Trash2, Camera, RefreshCw, Loader2 } from "lucide-react"
+import { getAuthHeader } from "@/lib/auth"
+
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const auth = getAuthHeader()
+  return auth ? { ...extra, Authorization: auth } : extra
+}
 
 interface Snapshot {
   filename: string
@@ -29,18 +35,57 @@ export function SnapshotGallery({ pathName }: SnapshotGalleryProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [objectUrls, setObjectUrls] = useState<Record<string, string>>({})
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const objectUrlsRef = useRef<Record<string, string>>({})
+  objectUrlsRef.current = objectUrls
+
+  // Revoke all blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      for (const url of Object.values(objectUrlsRef.current)) URL.revokeObjectURL(url)
+    }
+  }, [])
 
   const fetchSnapshots = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/snapshots/list?path=${encodeURIComponent(pathName)}`)
+      const res = await fetch(`/api/snapshots/list?path=${encodeURIComponent(pathName)}`, {
+        headers: authHeaders(),
+      })
       if (!res.ok) {
         throw new Error(`Failed to list snapshots: ${res.status}`)
       }
       const data = await res.json()
-      setSnapshots(data.snapshots || [])
+      const list: Snapshot[] = data.snapshots || []
+      setSnapshots(list)
+
+      // Materialize each image as blob URL so <img src> works without Authorization header
+      const newUrls: Record<string, string> = {}
+      await Promise.all(
+        list.map(async (s) => {
+          if (objectUrlsRef.current[s.filename]) {
+            newUrls[s.filename] = objectUrlsRef.current[s.filename]
+            return
+          }
+          try {
+            const imgRes = await fetch(s.url, { headers: authHeaders() })
+            if (!imgRes.ok) return
+            const blob = await imgRes.blob()
+            newUrls[s.filename] = URL.createObjectURL(blob)
+          } catch {
+            // ignore — image just won't render
+          }
+        }),
+      )
+      setObjectUrls((prev) => {
+        // Revoke removed entries
+        for (const [filename, url] of Object.entries(prev)) {
+          if (!newUrls[filename]) URL.revokeObjectURL(url)
+        }
+        return newUrls
+      })
     } catch (err) {
       console.error("Error fetching snapshots:", err)
       setError(err instanceof Error ? err.message : "Không thể tải snapshot")
@@ -66,11 +111,20 @@ export function SnapshotGallery({ pathName }: SnapshotGalleryProps) {
     }
   }, [open, fetchSnapshots])
 
-  const handleDownload = useCallback((snapshot: Snapshot) => {
-    const link = document.createElement("a")
-    link.href = snapshot.url
-    link.download = snapshot.filename
-    link.click()
+  const handleDownload = useCallback(async (snapshot: Snapshot) => {
+    try {
+      const res = await fetch(snapshot.url, { headers: authHeaders() })
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = snapshot.filename
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      alert(`Không thể tải snapshot: ${err instanceof Error ? err.message : "Lỗi"}`)
+    }
   }, [])
 
   const handleDelete = useCallback(
@@ -78,7 +132,7 @@ export function SnapshotGallery({ pathName }: SnapshotGalleryProps) {
       try {
         const res = await fetch("/api/snapshots/delete", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ path: pathName, name: filename }),
         })
 
@@ -167,12 +221,18 @@ export function SnapshotGallery({ pathName }: SnapshotGalleryProps) {
                   key={snapshot.filename}
                   className="group relative overflow-hidden rounded-lg border bg-muted"
                 >
-                  <img
-                    src={snapshot.url}
-                    alt={snapshot.filename}
-                    className="aspect-video w-full object-cover"
-                    loading="lazy"
-                  />
+                  {objectUrls[snapshot.filename] ? (
+                    <img
+                      src={objectUrls[snapshot.filename]}
+                      alt={snapshot.filename}
+                      className="aspect-video w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex aspect-video w-full items-center justify-center bg-muted">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
                   <div className="absolute inset-0 flex items-end justify-center opacity-0 transition-opacity group-hover:opacity-100">
                     <div className="flex w-full gap-1 bg-gradient-to-t from-black/70 to-transparent p-2">
                       <Button

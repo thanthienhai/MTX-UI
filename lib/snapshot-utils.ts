@@ -34,20 +34,11 @@ export function sanitizePathName(pathName: string): string | null {
   return clean
 }
 
-/**
- * Validate that the request has a valid auth session.
- * Uses the Authorization header or reads the session.
- */
-export function isAuthenticated(request: Request): boolean {
-  const authHeader = request.headers.get("authorization")
-  if (authHeader && authHeader.length > 0) return true
-
-  // Fallback: try reading auth token from cookies
-  const cookie = request.headers.get("cookie")
-  if (cookie && cookie.includes("mediamtx_dashboard_session")) return true
-
-  return false
-}
+// Auth helper moved to lib/server-auth.ts. The previous implementation only
+// did substring matching on the cookie name and accepted any non-empty
+// Authorization value, which was effectively unauthenticated. Snapshot route
+// handlers should call requireDashboardAuth() directly.
+export { requireDashboardAuth as isAuthenticated } from "./server-auth"
 
 /**
  * Resolve the full filesystem path for a snapshot file, with traversal protection.

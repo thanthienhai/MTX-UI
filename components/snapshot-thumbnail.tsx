@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, Camera } from "lucide-react"
+import { Loader2 } from "lucide-react"
+import { getAuthHeader } from "@/lib/auth"
 
 interface SnapshotThumbnailProps {
   pathName: string
@@ -13,18 +14,38 @@ export function SnapshotThumbnail({ pathName }: SnapshotThumbnailProps) {
 
   useEffect(() => {
     let cancelled = false
+    let objectUrl: string | null = null
 
     async function fetchThumbnail() {
       setLoading(true)
       try {
-        const res = await fetch(`/api/snapshots/latest?path=${encodeURIComponent(pathName)}&redirect=true`)
-        if (cancelled) return
+        const auth = getAuthHeader()
+        const headers: Record<string, string> = auth ? { Authorization: auth } : {}
 
-        if (res.ok && res.redirected) {
-          setThumbnailUrl(res.url)
-        } else {
-          setThumbnailUrl(null)
+        // 1. Resolve latest snapshot URL
+        const latestRes = await fetch(`/api/snapshots/latest?path=${encodeURIComponent(pathName)}`, {
+          headers,
+        })
+        if (!latestRes.ok) {
+          if (!cancelled) setThumbnailUrl(null)
+          return
         }
+        const { snapshot } = (await latestRes.json()) as { snapshot: { url: string } | null }
+        if (!snapshot) {
+          if (!cancelled) setThumbnailUrl(null)
+          return
+        }
+
+        // 2. Fetch the image file with auth, materialize as object URL
+        const imgRes = await fetch(snapshot.url, { headers })
+        if (!imgRes.ok) {
+          if (!cancelled) setThumbnailUrl(null)
+          return
+        }
+        const blob = await imgRes.blob()
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setThumbnailUrl(objectUrl)
       } catch {
         if (!cancelled) setThumbnailUrl(null)
       } finally {
@@ -33,7 +54,10 @@ export function SnapshotThumbnail({ pathName }: SnapshotThumbnailProps) {
     }
 
     fetchThumbnail()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
   }, [pathName])
 
   if (loading) {
