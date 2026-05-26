@@ -141,7 +141,7 @@ export function PathForm({
   const [runOnReady, setRunOnReady] = useState("")
   const [runOnReadyRestart, setRunOnReadyRestart] = useState(true)
 
-  // RPi Camera fields
+  // RPi Camera fields (basic)
   const [rpiCameraCamID, setRpiCameraCamID] = useState(0)
   const [rpiCameraWidth, setRpiCameraWidth] = useState(1920)
   const [rpiCameraHeight, setRpiCameraHeight] = useState(1080)
@@ -150,6 +150,29 @@ export function PathForm({
   const [rpiCameraVFlip, setRpiCameraVFlip] = useState(false)
   const [rpiCameraBitrate, setRpiCameraBitrate] = useState(5000000)
   const [rpiCameraCodec, setRpiCameraCodec] = useState("h264")
+
+  // RPi Camera fields (advanced) — empty string means "leave default"
+  const [rpiAdvancedOpen, setRpiAdvancedOpen] = useState(false)
+  const [rpiCameraSecondary, setRpiCameraSecondary] = useState(false)
+  const [rpiCameraBrightness, setRpiCameraBrightness] = useState("")
+  const [rpiCameraContrast, setRpiCameraContrast] = useState("")
+  const [rpiCameraSaturation, setRpiCameraSaturation] = useState("")
+  const [rpiCameraSharpness, setRpiCameraSharpness] = useState("")
+  const [rpiCameraExposure, setRpiCameraExposure] = useState("")
+  const [rpiCameraAWB, setRpiCameraAWB] = useState("")
+  const [rpiCameraDenoise, setRpiCameraDenoise] = useState("")
+  const [rpiCameraShutter, setRpiCameraShutter] = useState("")
+  const [rpiCameraGain, setRpiCameraGain] = useState("")
+  const [rpiCameraEV, setRpiCameraEV] = useState("")
+  const [rpiCameraROI, setRpiCameraROI] = useState("")
+  const [rpiCameraHDR, setRpiCameraHDR] = useState(false)
+  const [rpiCameraTuningFile, setRpiCameraTuningFile] = useState("")
+  const [rpiCameraMode, setRpiCameraMode] = useState("")
+  const [rpiCameraAfMode, setRpiCameraAfMode] = useState("")
+  const [rpiCameraAfRange, setRpiCameraAfRange] = useState("")
+  const [rpiCameraAfSpeed, setRpiCameraAfSpeed] = useState("")
+  const [rpiCameraLensPosition, setRpiCameraLensPosition] = useState("")
+  const [rpiCameraAfWindow, setRpiCameraAfWindow] = useState("")
 
   // Redirect source
   const [sourceRedirect, setSourceRedirect] = useState("")
@@ -221,6 +244,27 @@ export function PathForm({
         setRpiCameraVFlip((ip.rpiCameraVFlip as boolean) ?? false)
         setRpiCameraBitrate((ip.rpiCameraBitrate as number) ?? 5000000)
         setRpiCameraCodec((ip.rpiCameraCodec as string) || "h264")
+        setRpiCameraSecondary((ip.rpiCameraSecondary as boolean) ?? false)
+        const strOr = (v: unknown) => (v === undefined || v === null ? "" : String(v))
+        setRpiCameraBrightness(strOr(ip.rpiCameraBrightness))
+        setRpiCameraContrast(strOr(ip.rpiCameraContrast))
+        setRpiCameraSaturation(strOr(ip.rpiCameraSaturation))
+        setRpiCameraSharpness(strOr(ip.rpiCameraSharpness))
+        setRpiCameraExposure(strOr(ip.rpiCameraExposure))
+        setRpiCameraAWB(strOr(ip.rpiCameraAWB))
+        setRpiCameraDenoise(strOr(ip.rpiCameraDenoise))
+        setRpiCameraShutter(strOr(ip.rpiCameraShutter))
+        setRpiCameraGain(strOr(ip.rpiCameraGain))
+        setRpiCameraEV(strOr(ip.rpiCameraEV))
+        setRpiCameraROI(strOr(ip.rpiCameraROI))
+        setRpiCameraHDR((ip.rpiCameraHDR as boolean) ?? false)
+        setRpiCameraTuningFile(strOr(ip.rpiCameraTuningFile))
+        setRpiCameraMode(strOr(ip.rpiCameraMode))
+        setRpiCameraAfMode(strOr(ip.rpiCameraAfMode))
+        setRpiCameraAfRange(strOr(ip.rpiCameraAfRange))
+        setRpiCameraAfSpeed(strOr(ip.rpiCameraAfSpeed))
+        setRpiCameraLensPosition(strOr(ip.rpiCameraLensPosition))
+        setRpiCameraAfWindow(strOr(ip.rpiCameraAfWindow))
       }
 
       // Redirect
@@ -337,17 +381,39 @@ export function PathForm({
     if (detectedSourceType === "redirect") {
       base.source = `redirect://${sourceRedirect}`
     } else if (detectedSourceType === "rpiCameraSource") {
-      const params = new URLSearchParams({
-        camera: String(rpiCameraCamID),
-        width: String(rpiCameraWidth),
-        height: String(rpiCameraHeight),
-        fps: String(rpiCameraFPS),
-        hflip: String(rpiCameraHFlip),
-        vflip: String(rpiCameraVFlip),
-        bitrate: String(rpiCameraBitrate),
-        codec: rpiCameraCodec,
-      })
-      base.source = `rpiCamera://${params.toString()}`
+      base.source = "rpiCamera"
+      const r = base as Record<string, unknown>
+      r.rpiCameraCamID = rpiCameraCamID
+      r.rpiCameraWidth = rpiCameraWidth
+      r.rpiCameraHeight = rpiCameraHeight
+      r.rpiCameraFPS = rpiCameraFPS
+      r.rpiCameraHFlip = rpiCameraHFlip
+      r.rpiCameraVFlip = rpiCameraVFlip
+      r.rpiCameraBitrate = rpiCameraBitrate
+      r.rpiCameraCodec = rpiCameraCodec
+      // Advanced — only include if user provided a value
+      if (rpiCameraSecondary) r.rpiCameraSecondary = true
+      const numOrSkip = (v: string) => (v.trim() ? Number(v) : undefined)
+      const strOrSkip = (v: string) => (v.trim() ? v.trim() : undefined)
+      const tryNum = numOrSkip(rpiCameraBrightness); if (tryNum !== undefined) r.rpiCameraBrightness = tryNum
+      const tryNum2 = numOrSkip(rpiCameraContrast); if (tryNum2 !== undefined) r.rpiCameraContrast = tryNum2
+      const tryNum3 = numOrSkip(rpiCameraSaturation); if (tryNum3 !== undefined) r.rpiCameraSaturation = tryNum3
+      const tryNum4 = numOrSkip(rpiCameraSharpness); if (tryNum4 !== undefined) r.rpiCameraSharpness = tryNum4
+      const tryNum5 = numOrSkip(rpiCameraShutter); if (tryNum5 !== undefined) r.rpiCameraShutter = tryNum5
+      const tryNum6 = numOrSkip(rpiCameraGain); if (tryNum6 !== undefined) r.rpiCameraGain = tryNum6
+      const tryNum7 = numOrSkip(rpiCameraEV); if (tryNum7 !== undefined) r.rpiCameraEV = tryNum7
+      const tryNum8 = numOrSkip(rpiCameraLensPosition); if (tryNum8 !== undefined) r.rpiCameraLensPosition = tryNum8
+      const sExposure = strOrSkip(rpiCameraExposure); if (sExposure) r.rpiCameraExposure = sExposure
+      const sAWB = strOrSkip(rpiCameraAWB); if (sAWB) r.rpiCameraAWB = sAWB
+      const sDenoise = strOrSkip(rpiCameraDenoise); if (sDenoise) r.rpiCameraDenoise = sDenoise
+      const sROI = strOrSkip(rpiCameraROI); if (sROI) r.rpiCameraROI = sROI
+      if (rpiCameraHDR) r.rpiCameraHDR = true
+      const sTuning = strOrSkip(rpiCameraTuningFile); if (sTuning) r.rpiCameraTuningFile = sTuning
+      const sMode = strOrSkip(rpiCameraMode); if (sMode) r.rpiCameraMode = sMode
+      const sAfMode = strOrSkip(rpiCameraAfMode); if (sAfMode) r.rpiCameraAfMode = sAfMode
+      const sAfRange = strOrSkip(rpiCameraAfRange); if (sAfRange) r.rpiCameraAfRange = sAfRange
+      const sAfSpeed = strOrSkip(rpiCameraAfSpeed); if (sAfSpeed) r.rpiCameraAfSpeed = sAfSpeed
+      const sAfWindow = strOrSkip(rpiCameraAfWindow); if (sAfWindow) r.rpiCameraAfWindow = sAfWindow
     } else if (detectedSourceType === "publisher") {
       base.source = "publisher"
     } else {
@@ -790,7 +856,159 @@ export function PathForm({
                   <Switch checked={rpiCameraVFlip} onCheckedChange={setRpiCameraVFlip} />
                   <Label>Vertical Flip</Label>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Switch checked={rpiCameraSecondary} onCheckedChange={setRpiCameraSecondary} />
+                  <Label>Secondary Stream</Label>
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setRpiAdvancedOpen((v) => !v)}
+                className="text-xs underline text-muted-foreground hover:text-foreground"
+              >
+                {rpiAdvancedOpen ? "Ẩn" : "Hiện"} cài đặt nâng cao (image tuning / autofocus)
+              </button>
+
+              {rpiAdvancedOpen && (
+                <div className="space-y-3 rounded-md border bg-white p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Bỏ trống = giữ default MediaMTX. Tham khảo tài liệu libcamera để biết khoảng giá trị hợp lệ.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Brightness (-1.0…1.0)</Label>
+                      <Input value={rpiCameraBrightness} onChange={(e) => setRpiCameraBrightness(e.target.value)} className="h-8 text-xs" placeholder="0" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Contrast (0…32)</Label>
+                      <Input value={rpiCameraContrast} onChange={(e) => setRpiCameraContrast(e.target.value)} className="h-8 text-xs" placeholder="1" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Saturation (0…32)</Label>
+                      <Input value={rpiCameraSaturation} onChange={(e) => setRpiCameraSaturation(e.target.value)} className="h-8 text-xs" placeholder="1" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Sharpness (0…16)</Label>
+                      <Input value={rpiCameraSharpness} onChange={(e) => setRpiCameraSharpness(e.target.value)} className="h-8 text-xs" placeholder="1" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Exposure</Label>
+                      <Select value={rpiCameraExposure || "default"} onValueChange={(v) => setRpiCameraExposure(v === "default" ? "" : v)}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="default" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">default</SelectItem>
+                          <SelectItem value="normal">normal</SelectItem>
+                          <SelectItem value="short">short</SelectItem>
+                          <SelectItem value="long">long</SelectItem>
+                          <SelectItem value="custom">custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">AWB</Label>
+                      <Select value={rpiCameraAWB || "default"} onValueChange={(v) => setRpiCameraAWB(v === "default" ? "" : v)}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="default" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">default</SelectItem>
+                          <SelectItem value="auto">auto</SelectItem>
+                          <SelectItem value="incandescent">incandescent</SelectItem>
+                          <SelectItem value="tungsten">tungsten</SelectItem>
+                          <SelectItem value="fluorescent">fluorescent</SelectItem>
+                          <SelectItem value="indoor">indoor</SelectItem>
+                          <SelectItem value="daylight">daylight</SelectItem>
+                          <SelectItem value="cloudy">cloudy</SelectItem>
+                          <SelectItem value="custom">custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Denoise</Label>
+                      <Select value={rpiCameraDenoise || "default"} onValueChange={(v) => setRpiCameraDenoise(v === "default" ? "" : v)}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="default" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">default</SelectItem>
+                          <SelectItem value="off">off</SelectItem>
+                          <SelectItem value="cdn_off">cdn_off</SelectItem>
+                          <SelectItem value="cdn_fast">cdn_fast</SelectItem>
+                          <SelectItem value="cdn_hq">cdn_hq</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Shutter (µs)</Label>
+                      <Input value={rpiCameraShutter} onChange={(e) => setRpiCameraShutter(e.target.value)} className="h-8 text-xs" placeholder="0" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Gain</Label>
+                      <Input value={rpiCameraGain} onChange={(e) => setRpiCameraGain(e.target.value)} className="h-8 text-xs" placeholder="0" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">EV (-10…10)</Label>
+                      <Input value={rpiCameraEV} onChange={(e) => setRpiCameraEV(e.target.value)} className="h-8 text-xs" placeholder="0" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">ROI (x,y,w,h)</Label>
+                      <Input value={rpiCameraROI} onChange={(e) => setRpiCameraROI(e.target.value)} className="h-8 text-xs" placeholder="0,0,0,0" />
+                    </div>
+                    <div className="space-y-1.5 flex items-center gap-2 pt-5">
+                      <Switch checked={rpiCameraHDR} onCheckedChange={setRpiCameraHDR} />
+                      <Label className="text-xs">HDR</Label>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Tuning file</Label>
+                      <Input value={rpiCameraTuningFile} onChange={(e) => setRpiCameraTuningFile(e.target.value)} className="h-8 text-xs" placeholder="/usr/share/libcamera/..." />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Sensor mode</Label>
+                      <Input value={rpiCameraMode} onChange={(e) => setRpiCameraMode(e.target.value)} className="h-8 text-xs" placeholder='e.g. "1920:1080:10:U"' />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Autofocus mode</Label>
+                      <Select value={rpiCameraAfMode || "default"} onValueChange={(v) => setRpiCameraAfMode(v === "default" ? "" : v)}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="default" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">default</SelectItem>
+                          <SelectItem value="auto">auto</SelectItem>
+                          <SelectItem value="manual">manual</SelectItem>
+                          <SelectItem value="continuous">continuous</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Autofocus range</Label>
+                      <Select value={rpiCameraAfRange || "default"} onValueChange={(v) => setRpiCameraAfRange(v === "default" ? "" : v)}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="default" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">default</SelectItem>
+                          <SelectItem value="normal">normal</SelectItem>
+                          <SelectItem value="macro">macro</SelectItem>
+                          <SelectItem value="full">full</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Autofocus speed</Label>
+                      <Select value={rpiCameraAfSpeed || "default"} onValueChange={(v) => setRpiCameraAfSpeed(v === "default" ? "" : v)}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="default" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">default</SelectItem>
+                          <SelectItem value="normal">normal</SelectItem>
+                          <SelectItem value="fast">fast</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Lens position</Label>
+                      <Input value={rpiCameraLensPosition} onChange={(e) => setRpiCameraLensPosition(e.target.value)} className="h-8 text-xs" placeholder="0" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">AF window (x,y,w,h)</Label>
+                      <Input value={rpiCameraAfWindow} onChange={(e) => setRpiCameraAfWindow(e.target.value)} className="h-8 text-xs" placeholder="" />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
