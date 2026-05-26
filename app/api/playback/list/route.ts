@@ -19,7 +19,8 @@ export async function GET(request: Request) {
     return Response.json({ error: "Missing required query parameter: path" }, { status: 400 })
   }
 
-  const upstreamUrl = new URL(encodeURIComponent(path), `${normalizePlaybackUrl()}/`)
+  const upstreamUrl = new URL("list", `${normalizePlaybackUrl()}/`)
+  upstreamUrl.searchParams.set("path", path)
 
   let segments: { start: string; duration: number }[] = []
 

@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const path = searchParams.get("path")
   const start = searchParams.get("start")
+  const duration = searchParams.get("duration")
   const format = searchParams.get("format") || "fmp4"
 
   if (!path) {
@@ -23,12 +24,11 @@ export async function GET(request: Request) {
     return Response.json({ error: "Missing required query parameter: start" }, { status: 400 })
   }
 
-  const encodedPath = encodeURIComponent(path)
-  const upstreamUrl = new URL(`${encodedPath}/${encodeURIComponent(start)}`, `${normalizePlaybackUrl()}/`)
-
-  if (format === "mp4") {
-    upstreamUrl.searchParams.set("format", "mp4")
-  }
+  const upstreamUrl = new URL("get", `${normalizePlaybackUrl()}/`)
+  upstreamUrl.searchParams.set("path", path)
+  upstreamUrl.searchParams.set("start", start)
+  if (duration) upstreamUrl.searchParams.set("duration", duration)
+  upstreamUrl.searchParams.set("format", format === "mp4" ? "mp4" : "fmp4")
 
   try {
     const response = await fetch(upstreamUrl, {
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
       return Response.json({ error: `Playback server returned ${response.status}` }, { status: response.status })
     }
 
-    const contentType = format === "mp4" ? "video/mp4" : "video/mp4"
+    const contentType = "video/mp4"
     const contentDisposition =
       format === "mp4"
         ? `attachment; filename="${path}_${start}.mp4"`
