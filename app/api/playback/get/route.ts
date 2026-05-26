@@ -1,3 +1,5 @@
+import { requireDashboardAuth, unauthorizedResponse } from "@/lib/server-auth"
+
 const DEFAULT_PLAYBACK_URL = "http://localhost:9996"
 
 function normalizePlaybackUrl() {
@@ -9,7 +11,19 @@ function normalizePlaybackUrl() {
   return configuredUrl.trim().replace(/\/+$/, "")
 }
 
+/**
+ * Build a safe Content-Disposition filename. Strips quotes, CR/LF and
+ * anything that isn't filename-safe to prevent header injection.
+ */
+function safeFilename(base: string, ext: string): string {
+  const cleaned = base.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "recording"
+  return `${cleaned}.${ext}`
+}
+
 export async function GET(request: Request) {
+  const cred = requireDashboardAuth(request)
+  if (!cred) return unauthorizedResponse()
+
   const { searchParams } = new URL(request.url)
   const path = searchParams.get("path")
   const start = searchParams.get("start")
@@ -33,6 +47,9 @@ export async function GET(request: Request) {
   try {
     const response = await fetch(upstreamUrl, {
       cache: "no-store",
+      headers: {
+        Authorization: cred.mode === "bearer" ? `Bearer ${cred.value}` : `Basic ${cred.value}`,
+      },
     })
 
     if (!response.ok) {
@@ -40,10 +57,8 @@ export async function GET(request: Request) {
     }
 
     const contentType = "video/mp4"
-    const contentDisposition =
-      format === "mp4"
-        ? `attachment; filename="${path}_${start}.mp4"`
-        : `attachment; filename="${path}_${start}.fmp4"`
+    const filename = safeFilename(`${path}_${start}`, format === "mp4" ? "mp4" : "fmp4")
+    const contentDisposition = `attachment; filename="${filename}"`
 
     return new Response(response.body, {
       status: 200,

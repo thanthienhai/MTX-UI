@@ -9,11 +9,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { AlertTriangle, Download, Upload, FileText } from "lucide-react"
+import { AlertTriangle, Download, Upload, FileText, Info } from "lucide-react"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
 import type { GlobalConf, PathConf } from "@/lib/mediamtx-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
+import { isObject, diffObjects, buildApplyPlan } from "@/lib/config-diff.mjs"
 
 interface ConfigImportExportProps {
   permissions: MediaMtxPermissionSet
@@ -33,51 +34,8 @@ interface DiffEntry {
   field: string
   current: unknown
   incoming: unknown
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (a === null || b === null || a === undefined || b === undefined) return a === b
-  if (typeof a !== typeof b) return false
-  if (typeof a !== "object") return a === b
-  if (Array.isArray(a)) {
-    if (!Array.isArray(b) || a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false
-    return true
-  }
-  if (Array.isArray(b)) return false
-  const ao = a as Record<string, unknown>
-  const bo = b as Record<string, unknown>
-  const aKeys = Object.keys(ao)
-  const bKeys = Object.keys(bo)
-  if (aKeys.length !== bKeys.length) return false
-  for (const k of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(bo, k)) return false
-    if (!deepEqual(ao[k], bo[k])) return false
-  }
-  return true
-}
-
-function diffObjects(
-  current: Record<string, unknown> | undefined,
-  incoming: Record<string, unknown> | undefined,
-  scope: DiffEntry["scope"],
-  pathName?: string,
-): DiffEntry[] {
-  const result: DiffEntry[] = []
-  const keys = new Set<string>([...Object.keys(current || {}), ...Object.keys(incoming || {})])
-  for (const key of keys) {
-    const a = current?.[key]
-    const b = incoming?.[key]
-    if (!deepEqual(a, b)) {
-      result.push({ scope, pathName, field: key, current: a, incoming: b })
-    }
-  }
-  return result
+  /** True if the entry belongs to a path that does NOT exist locally yet. */
+  newPath?: boolean
 }
 
 export function ConfigImportExport({ permissions }: ConfigImportExportProps) {
@@ -151,35 +109,42 @@ export function ConfigImportExport({ permissions }: ConfigImportExportProps) {
     try {
       const entries: DiffEntry[] = []
 
-      if (bundle.global && isObject(bundle.global)) {
-        const current = await api.getGlobalConfig()
-        entries.push(...diffObjects(current as Record<string, unknown>, bundle.global as Record<string, unknown>, "global"))
+      // Fetch all three scopes in parallel; only what bundle actually contains
+      const [currentGlobal, currentDefaults, currentPaths] = await Promise.all([
+        bundle.global && isObject(bundle.global) ? api.getGlobalConfig() : Promise.resolve(null),
+        bundle.pathDefaults && isObject(bundle.pathDefaults) ? api.getPathDefaults() : Promise.resolve(null),
+        Array.isArray(bundle.paths) ? api.getPathConfigs() : Promise.resolve([] as PathConf[]),
+      ])
+
+      if (bundle.global && isObject(bundle.global) && currentGlobal) {
+        entries.push(...diffObjects(currentGlobal as Record<string, unknown>, bundle.global as Record<string, unknown>, "global"))
       }
-      if (bundle.pathDefaults && isObject(bundle.pathDefaults)) {
-        const current = await api.getPathDefaults()
+      if (bundle.pathDefaults && isObject(bundle.pathDefaults) && currentDefaults) {
         entries.push(
-          ...diffObjects(current as Record<string, unknown>, bundle.pathDefaults as Record<string, unknown>, "pathDefaults"),
+          ...diffObjects(currentDefaults as Record<string, unknown>, bundle.pathDefaults as Record<string, unknown>, "pathDefaults"),
         )
       }
       if (Array.isArray(bundle.paths)) {
-        const current = await api.getPathConfigs()
-        const currentByName = new Map(current.map((p) => [p.name, p]))
+        const currentByName = new Map(currentPaths.map((p) => [p.name, p]))
         for (const incoming of bundle.paths) {
           if (!incoming?.name) continue
           const existing = currentByName.get(incoming.name)
-          entries.push(
-            ...diffObjects(
-              existing as Record<string, unknown> | undefined,
-              incoming as Record<string, unknown>,
-              "path",
-              incoming.name,
-            ),
+          const isNew = !existing
+          const pathEntries = diffObjects(
+            existing as Record<string, unknown> | undefined,
+            incoming as Record<string, unknown>,
+            "path",
+            incoming.name,
           )
+          for (const e of pathEntries) e.newPath = isNew
+          entries.push(...pathEntries)
         }
       }
 
       setDiffs(entries)
-      setSelected(new Set(entries.map(diffKey))) // pre-select all
+      // Pre-select all. New-path entries are forced selected (path is added
+      // atomically below) but the UI shows them as disabled checkboxes.
+      setSelected(new Set(entries.map(diffKey)))
       if (entries.length === 0) notify({ type: "info", title: "Không có khác biệt" })
     } catch (e) {
       notify({ type: "error", title: "Lỗi tải config hiện tại", message: api.getMediaMtxErrorMessage(e) })
@@ -196,32 +161,19 @@ export function ConfigImportExport({ permissions }: ConfigImportExportProps) {
     }
     setBusy(true)
     try {
-      const globalPatch: Record<string, unknown> = {}
-      const defaultsPatch: Record<string, unknown> = {}
-      const pathPatches = new Map<string, Record<string, unknown>>()
+      const plan = buildApplyPlan(diffs, selected, diffKey)
 
-      for (const d of diffs) {
-        if (!selected.has(diffKey(d))) continue
-        if (d.scope === "global") globalPatch[d.field] = d.incoming
-        else if (d.scope === "pathDefaults") defaultsPatch[d.field] = d.incoming
-        else if (d.scope === "path" && d.pathName) {
-          const patch = pathPatches.get(d.pathName) ?? {}
-          patch[d.field] = d.incoming
-          pathPatches.set(d.pathName, patch)
-        }
+      if (Object.keys(plan.globalPatch).length > 0) {
+        await api.patchGlobalConfig(plan.globalPatch as Partial<GlobalConf>)
       }
-
-      if (Object.keys(globalPatch).length > 0) {
-        await api.patchGlobalConfig(globalPatch as Partial<GlobalConf>)
+      if (Object.keys(plan.defaultsPatch).length > 0) {
+        await api.patchPathDefaults(plan.defaultsPatch as Partial<PathConf>)
       }
-      if (Object.keys(defaultsPatch).length > 0) {
-        await api.patchPathDefaults(defaultsPatch as Partial<PathConf>)
-      }
-      for (const [name, patch] of pathPatches.entries()) {
-        const existing = (parsedBundle.paths ?? []).find((p) => p.name === name)
-        const current = await api.getPathConfig(name).catch(() => null)
-        if (!current && existing) {
-          await api.addPath(existing)
+      for (const [name, patch] of plan.pathPatches.entries()) {
+        if (plan.newPaths.has(name)) {
+          const incoming = (parsedBundle.paths ?? []).find((p) => p.name === name)
+          if (!incoming) continue
+          await api.addPath(incoming)
         } else {
           await api.updatePath(name, patch as Partial<PathConf>)
         }
@@ -344,6 +296,25 @@ export function ConfigImportExport({ permissions }: ConfigImportExportProps) {
                 <div className="text-sm font-medium">
                   {diffs.length} field khác biệt
                 </div>
+                {diffs.some((d) => d.newPath) && (
+                  <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-800">
+                    <Info className="mt-0.5 h-3.5 w-3.5" />
+                    <span>
+                      Các entry được tag <strong>NEW</strong> thuộc path chưa tồn tại — sẽ được add nguyên vẹn (`addPath`),
+                      không thể chọn từng field. Path đã tồn tại vẫn cho phép apply chọn lọc qua `updatePath`.
+                    </span>
+                  </div>
+                )}
+                {diffs.some((d) => d.incoming === undefined) && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5" />
+                    <span>
+                      Một số field có ở config hiện tại nhưng thiếu trong import. Apply <strong>không xoá</strong> các field
+                      này khỏi backend — MediaMTX PATCH bỏ qua key không gửi. Để reset, dùng UI tương ứng (Path Edit, Global
+                      Config) hoặc Replace path.
+                    </span>
+                  </div>
+                )}
                 {diffs.map((d) => {
                   const key = diffKey(d)
                   const isChecked = selected.has(key)
@@ -356,14 +327,19 @@ export function ConfigImportExport({ permissions }: ConfigImportExportProps) {
                         <div className="flex items-center gap-2">
                           <input
                             type="checkbox"
-                            checked={isChecked}
+                            checked={d.newPath ? true : isChecked}
                             onChange={() => toggle(key)}
-                            className="h-3.5 w-3.5"
+                            disabled={!!d.newPath}
+                            title={d.newPath ? "Path mới được add nguyên vẹn, không thể chọn từng field" : undefined}
+                            className="h-3.5 w-3.5 disabled:opacity-50"
                           />
                           <Badge variant="outline" className="text-[10px]">
                             {d.scope}
                             {d.pathName ? ` · ${d.pathName}` : ""}
                           </Badge>
+                          {d.newPath && (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 text-[10px]">NEW</Badge>
+                          )}
                           <span className="font-mono">{d.field}</span>
                         </div>
                       </div>

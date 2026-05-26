@@ -1,3 +1,5 @@
+import { requireDashboardAuth, unauthorizedResponse } from "@/lib/server-auth"
+
 const DEFAULT_PLAYBACK_URL = "http://localhost:9996"
 
 function normalizePlaybackUrl() {
@@ -10,6 +12,9 @@ function normalizePlaybackUrl() {
 }
 
 export async function GET(request: Request) {
+  const cred = requireDashboardAuth(request)
+  if (!cred) return unauthorizedResponse()
+
   const { searchParams } = new URL(request.url)
   const path = searchParams.get("path")
   const start = searchParams.get("start")
@@ -27,7 +32,10 @@ export async function GET(request: Request) {
   try {
     const response = await fetch(upstreamUrl, {
       cache: "no-store",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        Authorization: cred.mode === "bearer" ? `Bearer ${cred.value}` : `Basic ${cred.value}`,
+      },
     })
 
     if (!response.ok) {

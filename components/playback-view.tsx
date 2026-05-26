@@ -14,7 +14,7 @@ import { LoadingState, ErrorState, EmptyState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
 import type { GlobalConf, PathConf } from "@/lib/mediamtx-api"
-import { listRecordings, buildPlaybackSegmentUrl, getPlaybackErrorMessage } from "@/lib/playback-api"
+import { listRecordings, buildPlaybackSegmentUrl, fetchPlaybackSegmentBlobUrl, getPlaybackErrorMessage } from "@/lib/playback-api"
 import type { PlaybackSegment } from "@/lib/playback-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 import type { DashboardAuditEvent } from "@/lib/dashboard-audit"
@@ -441,11 +441,20 @@ function PlaybackBrowser({
     return `hsl(${hue}, 55%, 70%)`
   }
 
-  const handleSegmentClick = (segment: PlaybackSegment) => {
+  const handleSegmentClick = async (segment: PlaybackSegment) => {
     setSelectedSegment(segment)
-    setVideoSrc(buildPlaybackSegmentUrl({ path: selectedPath, start: segment.start, format: "fmp4" }))
     setIsVideoLoading(true)
     setVideoError(null)
+    // Revoke previous object URL if any
+    if (videoSrc && videoSrc.startsWith("blob:")) URL.revokeObjectURL(videoSrc)
+    try {
+      const blobUrl = await fetchPlaybackSegmentBlobUrl({ path: selectedPath, start: segment.start, format: "fmp4" })
+      setVideoSrc(blobUrl)
+    } catch (err) {
+      setVideoSrc("")
+      setVideoError(err instanceof Error ? err.message : "Không thể tải segment")
+      setIsVideoLoading(false)
+    }
   }
 
   const handleRefresh = () => {
@@ -454,13 +463,18 @@ function PlaybackBrowser({
     pollingRefresh.refresh().catch(() => undefined)
   }
 
-  const handleDownload = (format: "fmp4" | "mp4") => {
+  const handleDownload = async (format: "fmp4" | "mp4") => {
     if (!selectedSegment) return
-    const url = buildPlaybackSegmentUrl({ path: selectedPath, start: selectedSegment.start, format })
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${selectedPath}_${selectedSegment.start}.${format === "fmp4" ? "fmp4" : "mp4"}`
-    a.click()
+    try {
+      const blobUrl = await fetchPlaybackSegmentBlobUrl({ path: selectedPath, start: selectedSegment.start, format })
+      const a = document.createElement("a")
+      a.href = blobUrl
+      a.download = `${selectedPath}_${selectedSegment.start}.${format === "fmp4" ? "fmp4" : "mp4"}`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000)
+    } catch (err) {
+      notify({ type: "error", title: "Tải xuống thất bại", message: err instanceof Error ? err.message : "" })
+    }
   }
 
   const handleCopyUrl = async () => {
@@ -468,7 +482,11 @@ function PlaybackBrowser({
     const url = buildPlaybackSegmentUrl({ path: selectedPath, start: selectedSegment.start, format: "fmp4" })
     try {
       await navigator.clipboard.writeText(window.location.origin + url)
-      notify({ type: "success", title: "Đã sao chép URL playback" })
+      notify({
+        type: "success",
+        title: "Đã sao chép URL playback",
+        message: "URL chỉ mở được khi đính kèm Authorization từ session đăng nhập.",
+      })
     } catch {
       notify({ type: "error", title: "Không thể sao chép URL" })
     }

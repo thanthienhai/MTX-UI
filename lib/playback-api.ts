@@ -32,9 +32,14 @@ function withQuery(endpoint: string, query: Record<string, string | number | boo
   return `${endpoint}${endpoint.includes("?") ? "&" : "?"}${queryString}`
 }
 
+import { getAuthHeader } from "./auth"
+
 export async function listRecordings(params: PlaybackListParams): Promise<PlaybackSegment[]> {
   const url = withQuery("/api/playback/list", params)
-  const response = await fetch(url, { cache: "no-store" })
+  const auth = getAuthHeader()
+  const headers: Record<string, string> = { Accept: "application/json" }
+  if (auth) headers.Authorization = auth
+  const response = await fetch(url, { cache: "no-store", headers })
   if (!response.ok) {
     throw new Error(`Không thể tải danh sách bản ghi (${response.status})`)
   }
@@ -44,6 +49,25 @@ export async function listRecordings(params: PlaybackListParams): Promise<Playba
 
 export function buildPlaybackSegmentUrl(params: PlaybackGetParams): string {
   return withQuery("/api/playback/get", params)
+}
+
+/**
+ * Fetch a recording segment as a blob URL. The dashboard requires
+ * Authorization on /api/playback/get; <video src> / <a href> cannot
+ * attach headers, so callers must use this helper and remember to
+ * URL.revokeObjectURL() when the URL is no longer needed.
+ */
+export async function fetchPlaybackSegmentBlobUrl(params: PlaybackGetParams): Promise<string> {
+  const url = buildPlaybackSegmentUrl(params)
+  const auth = getAuthHeader()
+  const headers: Record<string, string> = {}
+  if (auth) headers.Authorization = auth
+  const response = await fetch(url, { cache: "no-store", headers })
+  if (!response.ok) {
+    throw new Error(`Không thể tải segment (${response.status})`)
+  }
+  const blob = await response.blob()
+  return URL.createObjectURL(blob)
 }
 
 export function getPlaybackErrorMessage(error: unknown): string {
