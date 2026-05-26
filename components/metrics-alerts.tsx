@@ -5,19 +5,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { AlertTriangle, Activity, CheckCircle2 } from "lucide-react"
+import { AlertTriangle, Activity, CheckCircle2, Bug } from "lucide-react"
 import { buildMediaMtxMetricsUrl } from "@/lib/mediamtx-url.mjs"
-import { parsePrometheus, deltaSnapshots } from "@/lib/prometheus.mjs"
+import { parsePrometheus } from "@/lib/prometheus.mjs"
+import { METRIC_NAMES, computeAlerts } from "@/lib/metrics-alerts-engine.mjs"
 
 interface PromSample {
   name: string
   labels: Record<string, string>
   value: number
-}
-interface SampleDelta {
-  name: string
-  labels: Record<string, string>
-  delta: number
 }
 
 interface AlertEntry {
@@ -33,6 +29,7 @@ interface Thresholds {
   jitterMs: number
   framesDiscardedPerSec: number
   errorFramesPerSec: number
+  stallSeconds: number
 }
 
 const DEFAULT_THRESHOLDS: Thresholds = {
@@ -40,28 +37,7 @@ const DEFAULT_THRESHOLDS: Thresholds = {
   jitterMs: 50,
   framesDiscardedPerSec: 1,
   errorFramesPerSec: 1,
-}
-
-/**
- * MediaMTX exposes metrics with names that varied across versions.
- * For each alert category we try the most likely names in order. The first
- * matching set of samples is used.
- */
-const METRIC_NAMES = {
-  // gauge: 1 if path is ready, 0 otherwise. Some builds use `paths{...,state="ready"}` with name=labels.
-  ready: ["paths_ready", "mediamtx_paths_ready"],
-  readers: ["paths_readers", "mediamtx_paths_readers"],
-  // jitter gauge per path or per session
-  jitter: ["paths_jitter", "rtsp_sessions_jitter", "rtsp_sessions_rtp_jitter"],
-  // counter: rtp packets lost
-  packetsLost: [
-    "rtsp_sessions_rtp_packets_lost",
-    "rtsp_session_rtp_packets_lost",
-    "paths_packets_lost",
-    "mediamtx_packets_lost",
-  ],
-  framesDiscarded: ["paths_frames_discarded", "mediamtx_frames_discarded"],
-  framesError: ["paths_frames_error", "paths_errors", "mediamtx_frames_error"],
+  stallSeconds: 30,
 }
 
 interface MetricsAlertsProps {
@@ -73,8 +49,12 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
   const [hasSnapshot, setHasSnapshot] = useState(false)
   const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS)
   const [alerts, setAlerts] = useState<AlertEntry[]>([])
+  const [observedNames, setObservedNames] = useState<string[]>([])
+  const [showDebug, setShowDebug] = useState(false)
   const prevSamplesRef = useRef<PromSample[] | null>(null)
   const prevAtRef = useRef<number>(0)
+  // byte-rate tracking cho stall detection (per path)
+  const bytesAtZeroSinceRef = useRef<Map<string, number>>(new Map())
   const thresholdsRef = useRef<Thresholds>(DEFAULT_THRESHOLDS)
   thresholdsRef.current = thresholds
 
@@ -92,10 +72,11 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
         const prevAt = prevAtRef.current
         const elapsedSec = prevAt > 0 ? (now - prevAt) / 1000 : 0
 
-        const computed = computeAlerts(parsed, prev, elapsedSec, thresholdsRef.current)
+        const computed = computeAlerts(parsed, prev, elapsedSec, thresholdsRef.current, bytesAtZeroSinceRef.current, now)
         setAlerts(computed)
         setError(null)
         setHasSnapshot(true)
+        setObservedNames(Array.from(new Set(parsed.map((s) => s.name))).sort())
         prevSamplesRef.current = parsed
         prevAtRef.current = now
       } catch (e) {
@@ -125,6 +106,17 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
     return <Badge variant="outline" className={cls}>{s.toUpperCase()}</Badge>
   }
 
+  // Highlight which configured candidate names are actually present
+  const candidateMatches = (() => {
+    const set = new Set(observedNames)
+    const out: { category: string; matched: string | null; tried: string[] }[] = []
+    for (const [cat, candidates] of Object.entries(METRIC_NAMES)) {
+      const matched = candidates.find((c) => set.has(c)) || null
+      out.push({ category: cat, matched, tried: candidates })
+    }
+    return out
+  })()
+
   return (
     <Card>
       <CardHeader>
@@ -132,12 +124,12 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
           <Activity className="h-4 w-4" /> Metrics alerts
         </CardTitle>
         <CardDescription>
-          Quét metrics MediaMTX mỗi {Math.round(pollMs / 1000)}s. Cảnh báo dựa trên delta giữa các snapshot
-          (packet loss, jitter, frames discarded, frames có lỗi, không có reader, source offline).
+          Quét metrics MediaMTX mỗi {Math.round(pollMs / 1000)}s. Cảnh báo cho path offline (paths với state ≠
+          ready), không có reader, byte stall, jitter cao, packet loss, frames discarded/error.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <ThresholdInput
             label="Packet loss / s"
             value={thresholds.packetLossPerSec}
@@ -158,11 +150,16 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
             value={thresholds.errorFramesPerSec}
             onChange={(v) => setThresholds((t) => ({ ...t, errorFramesPerSec: v }))}
           />
+          <ThresholdInput
+            label="Stall (s)"
+            value={thresholds.stallSeconds}
+            onChange={(v) => setThresholds((t) => ({ ...t, stallSeconds: v }))}
+          />
         </div>
 
         {error && (
           <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-800">
-            Không lấy được metrics: {error}
+            Không lấy được metrics: {error}. Kiểm tra `metrics: yes` trong MediaMTX config và quyền truy cập.
           </div>
         )}
 
@@ -189,6 +186,42 @@ export function MetricsAlerts({ pollMs = 15_000 }: MetricsAlertsProps) {
             </div>
           </div>
         ))}
+
+        {hasSnapshot && (
+          <button
+            type="button"
+            onClick={() => setShowDebug((v) => !v)}
+            className="flex items-center gap-1 text-xs text-muted-foreground underline hover:text-foreground"
+          >
+            <Bug className="h-3 w-3" />
+            {showDebug ? "Ẩn" : "Hiện"} debug ({observedNames.length} metric name)
+          </button>
+        )}
+        {showDebug && (
+          <div className="space-y-2 rounded-md border bg-slate-50 p-3 text-xs">
+            <div>
+              <div className="mb-1 font-medium">Candidate match</div>
+              <ul className="space-y-0.5">
+                {candidateMatches.map((c) => (
+                  <li key={c.category} className="font-mono">
+                    <Badge variant="outline" className="mr-1 text-[10px]">{c.category}</Badge>
+                    {c.matched ? (
+                      <span className="text-emerald-700">→ {c.matched}</span>
+                    ) : (
+                      <span className="text-red-600">→ none of [{c.tried.join(", ")}]</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <div className="mb-1 font-medium">Tất cả metric name quan sát được</div>
+              <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all font-mono">
+                {observedNames.join("  ·  ")}
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -213,129 +246,5 @@ function ThresholdInput({ label, value, onChange }: { label: string; value: numb
   )
 }
 
-/** Find first metric name in `candidates` that has samples in `parsed`. */
-function pickByName(parsed: PromSample[], candidates: readonly string[]): { name: string; samples: PromSample[] } {
-  for (const name of candidates) {
-    const samples = parsed.filter((s) => s.name === name)
-    if (samples.length > 0) return { name, samples }
-  }
-  return { name: candidates[0], samples: [] }
-}
-
-function pathLabel(labels: Record<string, string>): string | undefined {
-  return labels.name || labels.path || labels.id
-}
-
-function computeAlerts(
-  curr: PromSample[],
-  prev: PromSample[] | null,
-  elapsedSec: number,
-  thresholds: Thresholds,
-): AlertEntry[] {
-  const out: AlertEntry[] = []
-
-  const { samples: readySamples } = pickByName(curr, METRIC_NAMES.ready)
-  for (const s of readySamples) {
-    if (s.value === 0) {
-      const name = pathLabel(s.labels)
-      out.push({
-        id: `offline-${name || JSON.stringify(s.labels)}`,
-        severity: "high",
-        title: "Source offline",
-        detail: `Path ${name || "(unnamed)"} đang không ready. Kiểm tra source/connection upstream.`,
-        pathName: name,
-      })
-    }
-  }
-
-  const { samples: readersSamples } = pickByName(curr, METRIC_NAMES.readers)
-  for (const s of readersSamples) {
-    if (s.value === 0) {
-      const name = pathLabel(s.labels)
-      const isReady = readySamples.find((r) => pathLabel(r.labels) === name)?.value
-      if (isReady && isReady > 0) {
-        out.push({
-          id: `no-readers-${name}`,
-          severity: "low",
-          title: "Không có reader",
-          detail: `Path ${name || "(unnamed)"} đang publish nhưng không ai đọc.`,
-          pathName: name,
-        })
-      }
-    }
-  }
-
-  if (!prev || elapsedSec <= 0) return out
-
-  const { samples: jitterSamples } = pickByName(curr, METRIC_NAMES.jitter)
-  for (const s of jitterSamples) {
-    const ms = s.value * 1000
-    if (ms >= thresholds.jitterMs) {
-      const name = pathLabel(s.labels)
-      out.push({
-        id: `jitter-${name || JSON.stringify(s.labels)}`,
-        severity: ms >= thresholds.jitterMs * 2 ? "high" : "medium",
-        title: "Jitter cao",
-        detail: `Jitter ${ms.toFixed(1)} ms (ngưỡng ${thresholds.jitterMs} ms)`,
-        pathName: name,
-      })
-    }
-  }
-
-  const pushDeltaAlert = (
-    deltas: SampleDelta[],
-    threshold: number,
-    titleBase: string,
-    highMultiplier = 5,
-  ) => {
-    for (const d of deltas) {
-      const rate = d.delta / elapsedSec
-      if (rate >= threshold) {
-        const name = pathLabel(d.labels)
-        out.push({
-          id: `${titleBase}-${d.name}-${name || JSON.stringify(d.labels)}`,
-          severity: rate >= threshold * highMultiplier ? "high" : "medium",
-          title: titleBase,
-          detail: `${rate.toFixed(2)}/s (ngưỡng ${threshold}/s) — metric ${d.name}`,
-          pathName: name,
-        })
-      }
-    }
-  }
-
-  const lossNames = METRIC_NAMES.packetsLost
-  pushDeltaAlert(
-    deltaSnapshots(
-      prev.filter((s) => lossNames.includes(s.name)),
-      curr.filter((s) => lossNames.includes(s.name)),
-    ),
-    thresholds.packetLossPerSec,
-    "Packet loss",
-  )
-
-  const discardNames = METRIC_NAMES.framesDiscarded
-  pushDeltaAlert(
-    deltaSnapshots(
-      prev.filter((s) => discardNames.includes(s.name)),
-      curr.filter((s) => discardNames.includes(s.name)),
-    ),
-    thresholds.framesDiscardedPerSec,
-    "Frames discarded",
-    3,
-  )
-
-  const errorNames = METRIC_NAMES.framesError
-  pushDeltaAlert(
-    deltaSnapshots(
-      prev.filter((s) => errorNames.includes(s.name)),
-      curr.filter((s) => errorNames.includes(s.name)),
-    ),
-    thresholds.errorFramesPerSec,
-    "Error frames",
-    3,
-  )
-
-  return out
-}
 
 export default MetricsAlerts
