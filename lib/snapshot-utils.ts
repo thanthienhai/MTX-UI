@@ -1,6 +1,5 @@
-import { getAuthHeader, getDashboardSession } from "./auth"
-import { dirname, join, normalize, sep } from "path"
-import { readdirSync, existsSync, statSync } from "fs"
+import { join, normalize, sep } from "path"
+import { readdirSync, existsSync, statSync, unlinkSync } from "fs"
 
 export function getSnapshotBaseDir(): string {
   return process.env.SNAPSHOT_BASE_DIR || "./snapshots"
@@ -126,7 +125,6 @@ export function deleteSnapshot(pathName: string, filename: string): boolean {
 
   try {
     if (!existsSync(filePath)) return false
-    const { unlinkSync } = require("fs")
     unlinkSync(filePath)
     return true
   } catch {

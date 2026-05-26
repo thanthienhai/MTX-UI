@@ -67,7 +67,7 @@ function formatDuration(seconds: number): string {
 function formatEstimatedSize(durationSeconds: number): string {
   const ESTIMATED_BITRATE_BPS = 2_000_000
   const bytes = durationSeconds * (ESTIMATED_BITRATE_BPS / 8)
-  if (bytes < 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
