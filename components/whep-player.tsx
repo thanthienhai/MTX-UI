@@ -19,8 +19,8 @@ export function WHEPPlayer({ pathName, className }: WHEPPlayerProps) {
     isConnected,
   } = useMediaMTXWebRTC({
     url: whepUrl,
-    onError: (err) => {
-      console.error(`WHEP error for ${pathName}:`, err)
+    onError: () => {
+      // Library handles retries internally; no-op to avoid noisy console
     },
   })
 

@@ -40,11 +40,11 @@ const textareaClassName =
   "min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 
 function formatTimestamp(iso: string | null) {
-  if (!iso) return "Chua co"
+  if (!iso) return "Chưa có"
   try {
     return new Date(iso).toLocaleTimeString()
   } catch {
-    return "Khong ro"
+    return "Không rõ"
   }
 }
 
@@ -98,7 +98,7 @@ function PermissionMatrix({
                   <Input
                     value={row?.path || ""}
                     disabled={disabled || !isEnabled}
-                    placeholder="Path tuy chon"
+                    placeholder="Path tùy chọn"
                     onChange={(event) => onChange(updatePermission(rows, action, { path: event.target.value }))}
                   />
                   {pathError ? <p className="text-xs text-[#cf202f]">{pathError}</p> : null}
@@ -151,7 +151,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
     } catch (error) {
       const message = api.getMediaMtxErrorMessage(error)
       setLoadError(message)
-      notify({ type: "error", title: "Khong the tai cau hinh xac thuc", message })
+      notify({ type: "error", title: "Không thể tải cấu hình xác thực", message })
     } finally {
       setIsLoading(false)
     }
@@ -177,7 +177,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
     const validation = validateAuthForm(form)
     setFieldErrors(validation.fieldErrors)
     if (!validation.valid) {
-      notify({ type: "error", title: "Cau hinh xac thuc chua hop le", message: "Kiem tra cac truong bi loi." })
+      notify({ type: "error", title: "Cấu hình xác thực chưa hợp lệ", message: "Kiểm tra các trường bị lỗi." })
       return
     }
     setPatchPreview(patch)
@@ -187,11 +187,11 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
     const validation = validateAuthForm(form)
     setFieldErrors(validation.fieldErrors)
     if (!validation.valid) {
-      notify({ type: "error", title: "Cau hinh xac thuc chua hop le", message: "Kiem tra cac truong bi loi." })
+      notify({ type: "error", title: "Cấu hình xác thực chưa hợp lệ", message: "Kiểm tra các trường bị lỗi." })
       return
     }
     if (!hasPatch) {
-      notify({ type: "info", title: "Khong co thay doi de luu" })
+      notify({ type: "info", title: "Không có thay đổi để lưu" })
       return
     }
 
@@ -204,7 +204,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
       setForm(mapGlobalConfigToAuthForm(refreshed))
       setPatchPreview(null)
       setLastSyncedAt(new Date().toISOString())
-      notify({ type: "success", title: "Da cap nhat xac thuc", message: "Cau hinh auth da duoc patch." })
+      notify({ type: "success", title: "Đã cập nhật xác thực", message: "Cấu hình auth đã được patch." })
       appendAuditEvent?.({
         actor: username,
         action: "auth.config.patch",
@@ -214,7 +214,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
       })
     } catch (error) {
       const message = api.getMediaMtxErrorMessage(error)
-      notify({ type: "error", title: "Khong the cap nhat xac thuc", message })
+      notify({ type: "error", title: "Không thể cập nhật xác thực", message })
       appendAuditEvent?.({
         actor: username,
         action: "auth.config.patch",
@@ -239,11 +239,11 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
         path: "",
         user: username || undefined,
       })
-      notify({ type: "success", title: "HTTP auth test thanh cong" })
+      notify({ type: "success", title: "HTTP auth test thành công" })
       appendAuditEvent?.({ actor: username, action: "auth.http.test", target: "http", result: "success" })
     } catch (error) {
       const message = api.getMediaMtxErrorMessage(error)
-      notify({ type: "error", title: "HTTP auth test that bai", message })
+      notify({ type: "error", title: "HTTP auth test thất bại", message })
       appendAuditEvent?.({
         actor: username,
         action: "auth.http.test",
@@ -261,11 +261,11 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
     try {
       requireMediaMtxAction(permissions, "api")
       await api.refreshJwks()
-      notify({ type: "success", title: "Da refresh JWKS" })
+      notify({ type: "success", title: "Đã refresh JWKS" })
       appendAuditEvent?.({ actor: username, action: "auth.jwks.refresh", target: "jwks", result: "success" })
     } catch (error) {
       const message = api.getMediaMtxErrorMessage(error)
-      notify({ type: "error", title: "Khong the refresh JWKS", message })
+      notify({ type: "error", title: "Không thể refresh JWKS", message })
       appendAuditEvent?.({
         actor: username,
         action: "auth.jwks.refresh",
@@ -282,14 +282,14 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Cau hinh xac thuc</CardTitle>
-          <CardDescription>Can quyen api de quan ly cau hinh xac thuc MediaMTX.</CardDescription>
+          <CardTitle>Cấu hình xác thực</CardTitle>
+          <CardDescription>Cần quyền api để quản lý cấu hình xác thực MediaMTX.</CardDescription>
         </CardHeader>
       </Card>
     )
   }
 
-  if (isLoading) return <LoadingState label="Dang tai cau hinh xac thuc..." />
+  if (isLoading) return <LoadingState label="Đang tải cấu hình xác thực..." />
   if (loadError) return <ErrorState message={loadError} onRetry={fetchAuthConfig} />
 
   return (
@@ -298,20 +298,20 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
         <CardHeader>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <CardTitle>Cau hinh xac thuc</CardTitle>
-              <CardDescription>Dong bo luc {formatTimestamp(lastSyncedAt)}</CardDescription>
+              <CardTitle>Cấu hình xác thực</CardTitle>
+              <CardDescription>Đồng bộ lúc {formatTimestamp(lastSyncedAt)}</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={fetchAuthConfig} disabled={isSaving}>
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Tai lai
+                Tải lại
               </Button>
               <Button variant="outline" onClick={showPreview} disabled={isSaving || !hasPatch}>
                 Xem payload
               </Button>
               <Button onClick={saveAuthConfig} disabled={isSaving || !hasPatch}>
                 <Save className="mr-2 h-4 w-4" />
-                {isSaving ? "Dang luu..." : "Luu auth"}
+                {isSaving ? "Đang lưu..." : "Lưu auth"}
               </Button>
             </div>
           </div>
@@ -341,7 +341,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
                 <div key={action} className="flex items-center justify-between rounded-md border p-3">
                   <Label className="font-mono text-sm">{action}</Label>
                   <Badge variant={permissions[action] !== false ? "default" : "secondary"}>
-                    {permissions[action] !== false ? "Duoc cap" : "Khong co"}
+                    {permissions[action] !== false ? "Được cấp" : "Không có"}
                   </Badge>
                 </div>
               ))}
@@ -364,7 +364,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
           <div className="flex items-center justify-between gap-3">
             <div>
               <CardTitle>Internal users</CardTitle>
-              <CardDescription>Quan ly `authInternalUsers`, IP allowlist va permission matrix.</CardDescription>
+              <CardDescription>Quản lý `authInternalUsers`, IP allowlist và permission matrix.</CardDescription>
             </div>
             <Button
               onClick={() =>
@@ -375,14 +375,14 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
               }
             >
               <Plus className="mr-2 h-4 w-4" />
-              Them user
+              Thêm user
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {form.internalUsers.length === 0 ? (
             <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              Chua co internal user nao.
+              Chưa có internal user nào.
             </div>
           ) : null}
           {form.internalUsers.map((user, index) => (
@@ -391,7 +391,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
                 <div>
                   <h3 className="font-medium">{user.user || `User ${index + 1}`}</h3>
                   <p className="text-xs text-muted-foreground">
-                    {user.storedPass ? "Dang co mat khau da luu" : "Chua co mat khau da luu"}
+                    {user.storedPass ? "Đang có mật khẩu đã lưu" : "Chưa có mật khẩu đã lưu"}
                   </p>
                 </div>
                 <Button
@@ -404,7 +404,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
                   }
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Xoa
+                  Xóa
                 </Button>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
@@ -412,7 +412,7 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
                   <Label>Username</Label>
                   <Input
                     value={user.user}
-                    placeholder="any hoac username"
+                    placeholder="any hoặc username"
                     onChange={(event) => updateUser(user.id, (current) => ({ ...current, user: event.target.value }))}
                   />
                   {fieldErrors[`internalUsers.${index}.user`] ? (
@@ -420,23 +420,23 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  <Label>Thay mat khau</Label>
+                  <Label>Thay mật khẩu</Label>
                   <Input
                     value={user.passwordReplacement}
                     type="password"
-                    placeholder="Bo trong de giu mat khau"
+                    placeholder="Bỏ trống để giữ mật khẩu"
                     onChange={(event) =>
                       updateUser(user.id, (current) => ({ ...current, passwordReplacement: event.target.value }))
                     }
                   />
-                  <p className="text-xs text-muted-foreground">Chap nhan plain text hoac hash Argon2/SHA256 co prefix.</p>
+                  <p className="text-xs text-muted-foreground">Chấp nhận plain text hoặc hash Argon2/SHA256 có prefix.</p>
                 </div>
                 <div className="space-y-2">
                   <Label>IP allowlist</Label>
                   <textarea
                     className={textareaClassName}
                     value={user.ipsText}
-                    placeholder="Moi IP/CIDR mot dong hoac phan tach bang dau phay"
+                    placeholder="Mỗi IP/CIDR một dòng hoặc phân tách bằng dấu phẩy"
                     onChange={(event) =>
                       updateUser(user.id, (current) => ({ ...current, ipsText: event.target.value }))
                     }
@@ -464,11 +464,11 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>HTTP auth</CardTitle>
-              <CardDescription>Thiet lap `authHTTPAddress`, fingerprint va exclude rules.</CardDescription>
+              <CardDescription>Thiết lập `authHTTPAddress`, fingerprint và exclude rules.</CardDescription>
             </div>
             <Button variant="outline" onClick={testHttpAuth} disabled={isTestingHttp || !form.http.address.trim()}>
               <TestTube2 className="mr-2 h-4 w-4" />
-              {isTestingHttp ? "Dang test..." : "Test auth endpoint"}
+              {isTestingHttp ? "Đang test..." : "Test auth endpoint"}
             </Button>
           </div>
         </CardHeader>
@@ -514,11 +514,11 @@ export function AuthConfigurationView({ permissions, username, appendAuditEvent 
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>JWT auth</CardTitle>
-              <CardDescription>Thiet lap JWKS, claim, issuer, audience va exclude rules.</CardDescription>
+              <CardDescription>Thiết lập JWKS, claim, issuer, audience và exclude rules.</CardDescription>
             </div>
             <Button variant="outline" onClick={refreshJwks} disabled={isRefreshingJwks}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              {isRefreshingJwks ? "Dang refresh..." : "Refresh JWKS"}
+              {isRefreshingJwks ? "Đang refresh..." : "Refresh JWKS"}
             </Button>
           </div>
         </CardHeader>

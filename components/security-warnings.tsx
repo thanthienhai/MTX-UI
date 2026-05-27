@@ -69,7 +69,7 @@ export function evaluateSecurity(config: GlobalConf | null, paths: PathConf[] = 
 
   // 1. Default credentials in internal users
   if (Array.isArray(config.authInternalUsers)) {
-    for (const u of config.authInternalUsers) {
+    config.authInternalUsers.forEach((u, idx) => {
       const user = String(u.user ?? "").toLowerCase()
       const pass = String(u.pass ?? "").toLowerCase()
       if (user && DEFAULT_USERS.includes(user) && pass && DEFAULT_PASSWORDS.includes(pass)) {
@@ -83,13 +83,13 @@ export function evaluateSecurity(config: GlobalConf | null, paths: PathConf[] = 
       }
       if (user === "any" && (!pass || pass.length === 0)) {
         findings.push({
-          id: `any-no-pass`,
+          id: `any-no-pass-${idx}`,
           severity: "medium",
           title: 'User "any" không có mật khẩu',
           detail: 'User "any" cho phép truy cập không xác thực. Đảm bảo permissions được giới hạn chặt.',
         })
       }
-    }
+    })
   }
 
   // 2. API / metrics / pprof exposed publicly
