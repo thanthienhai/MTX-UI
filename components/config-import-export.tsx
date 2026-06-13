@@ -15,6 +15,7 @@ import * as api from "@/lib/mediamtx-api"
 import type { GlobalConf, PathConf } from "@/lib/mediamtx-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 import { isObject, diffObjects, buildApplyPlan } from "@/lib/config-diff.mjs"
+import { buildMediaMtxYaml } from "@/lib/yaml-serializer.mjs"
 
 interface ConfigImportExportProps {
   permissions: MediaMtxPermissionSet
@@ -85,6 +86,38 @@ export function ConfigImportExport({ permissions }: ConfigImportExportProps) {
       notify({ type: "success", title: "Đã export config" })
     } catch (e) {
       notify({ type: "error", title: "Export thất bại", message: api.getMediaMtxErrorMessage(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleExportYaml() {
+    if (!canRead) {
+      notify({ type: "error", title: "Thiếu quyền", message: "Cần quyền `api`." })
+      return
+    }
+    setBusy(true)
+    try {
+      const bundle: { global?: GlobalConf; pathDefaults?: PathConf; paths?: PathConf[] } = {}
+      if (exportGlobal) bundle.global = await api.getGlobalConfig()
+      if (exportPathDefaults) bundle.pathDefaults = await api.getPathDefaults()
+      if (exportPaths) bundle.paths = await api.getPathConfigs()
+
+      const yaml = buildMediaMtxYaml(bundle)
+      const blob = new Blob([yaml], { type: "application/x-yaml" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "mediamtx.yml"
+      a.click()
+      URL.revokeObjectURL(url)
+      notify({
+        type: "success",
+        title: "Đã tạo mediamtx.yml",
+        message: "Kiểm tra lại file trước khi triển khai — YAML có thể cần điều chỉnh thủ công.",
+      })
+    } catch (e) {
+      notify({ type: "error", title: "Export YAML thất bại", message: api.getMediaMtxErrorMessage(e) })
     } finally {
       setBusy(false)
     }
@@ -239,9 +272,14 @@ export function ConfigImportExport({ permissions }: ConfigImportExportProps) {
               <Label className="text-sm">Paths</Label>
             </div>
           </div>
-          <Button onClick={handleExport} disabled={busy || !canRead}>
-            <Download className="mr-2 h-4 w-4" /> Tải JSON
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleExport} disabled={busy || !canRead}>
+              <Download className="mr-2 h-4 w-4" /> Tải JSON
+            </Button>
+            <Button onClick={handleExportYaml} disabled={busy || !canRead} variant="outline">
+              <Download className="mr-2 h-4 w-4" /> Tải mediamtx.yml
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

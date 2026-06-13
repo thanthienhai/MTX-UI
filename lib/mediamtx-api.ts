@@ -648,3 +648,29 @@ export async function deleteRecordingSegment(params: DeleteRecordingSegmentParam
 export async function refreshJwks() {
   return fetchMediaMtxApi<null>("/v3/auth/jwks/refresh", { method: "POST" })
 }
+
+export interface MediaMtxServerInfo {
+  serverHeader: string | null
+  version: string | null
+}
+
+/**
+ * Best-effort lookup MediaMTX version từ Server response header. MediaMTX v3 API
+ * không có endpoint version, nên cách duy nhất là đọc header. Trả về null nếu
+ * header không có hoặc không parse được.
+ */
+export async function getMediaMtxServerInfo(): Promise<MediaMtxServerInfo> {
+  const authHeader = getAuthHeader()
+  const headers = new Headers({ Accept: "application/json" })
+  if (authHeader) headers.set("Authorization", authHeader)
+  const response = await fetch(buildMediaMtxApiUrl("/v3/config/global/get"), {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  })
+  await response.body?.cancel()
+  const serverHeader = response.headers.get("server") || response.headers.get("Server")
+  if (!serverHeader) return { serverHeader: null, version: null }
+  const match = serverHeader.match(/mediamtx[\/\s]+([0-9][^\s,;]*)/i)
+  return { serverHeader, version: match?.[1] ?? null }
+}

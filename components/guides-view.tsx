@@ -228,6 +228,56 @@ Stream Key: ${ctx.path}${ctx.publishUser ? `?user=${ctx.publishUser}&pass=${ctx.
     ],
   },
   {
+    id: "hls-camera",
+    title: "HLS camera/server (pull)",
+    description: "Pull stream từ một HLS server upstream làm source cho path.",
+    snippets: (ctx) => [
+      {
+        label: "Path YAML",
+        language: "text",
+        code: `paths:
+  ${ctx.path}:
+    source: https://upstream-host/stream/index.m3u8
+    sourceFingerprint: ""    # tuỳ chọn: SHA256 cert nếu HTTPS self-signed
+    sourceOnDemand: yes`,
+        note: "MediaMTX hỗ trợ HLS source (HLS → republish sang RTSP/RTMP/WebRTC/SRT). Dùng URL `.m3u8`.",
+      },
+      {
+        label: "FFmpeg → relay HLS lên RTSP path",
+        language: "bash",
+        code: `ffmpeg -re -i https://upstream-host/stream/index.m3u8 -c copy -f rtsp ${rtspUrl(ctx, true)}`,
+        note: "Phương án thay thế nếu version MediaMTX không hỗ trợ source HLS trực tiếp.",
+      },
+    ],
+  },
+  {
+    id: "vlc",
+    title: "VLC (stream out)",
+    description: "Publish file/capture từ VLC bằng tính năng Stream...",
+    snippets: (ctx) => [
+      {
+        label: "Stream sang RTMP (Media → Stream...)",
+        language: "text",
+        code: `Destination: RTMP
+URL:    ${rtmpUrl(ctx, true)}
+Profile: Video - H.264 + MP3 (MP4)`,
+        note: "VLC: Media → Stream... → chọn file/capture → Next → New destination = RTMP → dán URL.",
+      },
+      {
+        label: "Stream sang RTP/MPEG-TS (CLI)",
+        language: "bash",
+        code: `vlc -vvv input.mp4 --sout "#std{access=udp,mux=ts,dst=${ctx.host}:${ctx.rtpPort}}"`,
+        note: "Bind path MediaMTX với source `rtp://:${ctx.rtpPort}` hoặc dùng `udp://@:${ctx.rtpPort}` thông qua FFmpeg trung gian.",
+      },
+      {
+        label: "Stream sang RTSP (chế độ server VLC)",
+        language: "bash",
+        code: `vlc -vvv input.mp4 --sout "#rtp{sdp=rtsp://:8554/${ctx.path}}" :sout-keep`,
+        note: "VLC tự host RTSP — MediaMTX có thể pull về bằng path source `rtsp://vlc-host:8554/${ctx.path}`.",
+      },
+    ],
+  },
+  {
     id: "srt",
     title: "SRT client",
     description: "Publish qua SRT.",

@@ -44,6 +44,7 @@ import {
   Settings,
   Code2,
   BookOpen,
+  FileText,
 } from "lucide-react"
 import { ProtectedRoute } from "@/components/protected-route"
 import { clearAuth, getDashboardSession, getSessionPermissions, getUsername } from "@/lib/auth"
@@ -55,6 +56,7 @@ import { SnapshotGallery } from "@/components/snapshot-gallery"
 import { SnapshotThumbnail } from "@/components/snapshot-thumbnail"
 import { ReEncodingConfig } from "@/components/re-encoding-config"
 import { GuidesView } from "@/components/guides-view"
+import { LogsViewer } from "@/components/logs-viewer"
 import { ConfigImportExport } from "@/components/config-import-export"
 import { SecurityWarnings } from "@/components/security-warnings"
 import { AbsoluteTimestampsInfo } from "@/components/absolute-timestamps-info"
@@ -88,6 +90,7 @@ import { RecordingSettingsView } from "@/components/recording-settings-view"
 import { RecordingStatusView } from "@/components/recording-status-view"
 import { RemoteUploadConfig } from "@/components/remote-upload-config"
 import { PlaybackView } from "@/components/playback-view"
+import { RelayEventsAdmin } from "@/components/relay-events-admin"
 import type { GlobalConf, HLSMuxer, PathConfig, Path as LivePath } from "@/lib/mediamtx-api"
 import {
   buildDashboardOverview,
@@ -143,6 +146,7 @@ function MediaMTXDashboard() {
   const [auditEvents, setAuditEvents] = useState<DashboardAuditEvent[]>([])
   const [permissions, setPermissions] = useState<MediaMtxPermissionSet>(() => getSessionPermissions())
   const [apiLatencyMs, setApiLatencyMs] = useState<number | null>(null)
+  const [serverInfo, setServerInfo] = useState<{ serverHeader: string | null; version: string | null } | null>(null)
   const [metricsStatus, setMetricsStatus] = useState<{
     status: "healthy" | "degraded" | "disabled" | "unknown"
     latencyMs?: number
@@ -264,6 +268,10 @@ function MediaMTXDashboard() {
       setHlsMuxers(muxers)
       setApiLatencyMs(Math.round(performance.now() - startedAt))
       setLastConfigUpdateAt(new Date().toISOString())
+      api
+        .getMediaMtxServerInfo()
+        .then((info) => setServerInfo(info))
+        .catch(() => setServerInfo(null))
       setProtocolCounts({
         rtspConnections: protocolLists[0]?.length ?? -1,
         rtspSessions: protocolLists[1]?.length ?? -1,
@@ -610,6 +618,7 @@ function MediaMTXDashboard() {
         metricsStatus,
         lastConfigUpdateAt,
         bitrate,
+        serverInfo,
       }),
     [
       paths,
@@ -623,6 +632,7 @@ function MediaMTXDashboard() {
       metricsStatus,
       lastConfigUpdateAt,
       bitrate,
+      serverInfo,
     ],
   )
   const activeStreamsCount = overview.streams.readyPaths
@@ -715,6 +725,15 @@ function MediaMTXDashboard() {
       title: "Đồng bộ config",
       value: overview.health.configMismatch ? "Cảnh báo" : "Đã đồng bộ",
       description: overview.health.configMismatch ? "Giá trị UI khác backend" : "UI và backend khớp",
+    },
+    {
+      title: "MediaMTX version",
+      value: overview.health.serverInfo?.version
+        ? `v${overview.health.serverInfo.version}`
+        : overview.health.serverInfo?.serverHeader || "không xác định",
+      description: overview.health.serverInfo?.serverHeader
+        ? `Server header: ${overview.health.serverInfo.serverHeader}`
+        : "MediaMTX không trả `Server` header — không thể xác định version qua API",
     },
   ]
 
@@ -955,7 +974,7 @@ function MediaMTXDashboard() {
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Tabs defaultValue="overview" className="space-y-8">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-6 lg:grid-cols-11">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-full bg-[#eef0f3] p-1 sm:grid-cols-6 lg:grid-cols-12">
             <TabsTrigger value="overview" className="rounded-full py-2 data-[state=active]:bg-white">
               <Monitor className="w-4 h-4" />
               <span>Tổng quan</span>
@@ -1003,6 +1022,10 @@ function MediaMTXDashboard() {
             <TabsTrigger value="guides" className="rounded-full py-2 data-[state=active]:bg-white">
               <BookOpen className="w-4 h-4" />
               <span>Guides</span>
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="rounded-full py-2 data-[state=active]:bg-white">
+              <FileText className="w-4 h-4" />
+              <span>Logs</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1409,6 +1432,7 @@ function MediaMTXDashboard() {
           </TabsContent>
 
           <TabsContent value="paths" className="space-y-6">
+            <RelayEventsAdmin />
             <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -2093,6 +2117,10 @@ function MediaMTXDashboard() {
 
           <TabsContent value="guides" className="space-y-6">
             <GuidesView pathSuggestions={paths.map((p) => p.name).filter(Boolean) as string[]} />
+          </TabsContent>
+
+          <TabsContent value="logs" className="space-y-6">
+            <LogsViewer />
           </TabsContent>
         </Tabs>
       </div>

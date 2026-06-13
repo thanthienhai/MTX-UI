@@ -5,10 +5,13 @@ import Hls from "hls.js"
 import { buildMediaMtxHlsUrl } from "@/lib/mediamtx-url.mjs"
 
 interface StreamPlayerProps {
-  pathName: string
+  /** Path name resolved against the configured HLS base. Ignored when `hlsUrl` is set. */
+  pathName?: string
+  /** Explicit HLS playlist URL (e.g. a token-gated public proxy). Takes precedence. */
+  hlsUrl?: string
 }
 
-export function StreamPlayer({ pathName }: StreamPlayerProps) {
+export function StreamPlayer({ pathName, hlsUrl: explicitHlsUrl }: StreamPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -18,7 +21,7 @@ export function StreamPlayer({ pathName }: StreamPlayerProps) {
     const video = videoRef.current
     if (!video) return
 
-    const hlsUrl = buildMediaMtxHlsUrl(pathName)
+    const hlsUrl = explicitHlsUrl || buildMediaMtxHlsUrl(pathName)
 
     setIsLoading(true)
     setError(null)
@@ -68,7 +71,7 @@ export function StreamPlayer({ pathName }: StreamPlayerProps) {
         hlsRef.current = null
       }
     }
-  }, [pathName])
+  }, [pathName, explicitHlsUrl])
 
   return (
     <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "16/9" }}>
