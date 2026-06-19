@@ -205,6 +205,62 @@ export async function findEventByToken(token: string, kind: TokenKind): Promise<
   return events.find((e) => e.meta?.[field] === token) ?? null
 }
 
+/** Resolve an event by its backing path name (= ingest key). Admin-side use. */
+export async function findEventByPath(pathName: string): Promise<ResolvedEvent | null> {
+  if (!pathName) return null
+  const events = await listEvents()
+  return events.find((e) => e.pathName === pathName) ?? null
+}
+
+export interface AdminEventRow {
+  pathKey: string
+  displayName: string
+  statusToken: string
+  configToken: string
+  createdAt: string
+  quota: number
+  destinationsTotal: number
+  destinationsEnabled: number
+  online: boolean
+  bytesReceived: number
+  sourceType: string | null
+}
+
+/**
+ * Admin listing of every relay event with live runtime, for the dashboard
+ * management view. Login-code hashes are intentionally omitted — they are
+ * unrecoverable and useless to the client. Newest first.
+ */
+export async function listEventsForAdmin(): Promise<AdminEventRow[]> {
+  const events = await listEvents()
+  const rows = await Promise.all(
+    events.map(async (e): Promise<AdminEventRow> => {
+      const rt = await getEventRuntime(e.pathName)
+      const dests = e.meta.destinations ?? []
+      return {
+        pathKey: e.pathName,
+        displayName: e.meta.displayName,
+        statusToken: e.meta.statusToken,
+        configToken: e.meta.configToken,
+        createdAt: e.meta.createdAt,
+        quota: e.meta.quota ?? 10,
+        destinationsTotal: dests.length,
+        destinationsEnabled: dests.filter((d) => d.enabled).length,
+        online: rt.online,
+        bytesReceived: rt.bytesReceived,
+        sourceType: rt.sourceType,
+      }
+    }),
+  )
+  rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+  return rows
+}
+
+/** Delete an event = remove its MediaMTX path. Uses the admin's forwarded auth. */
+export async function deleteEvent(pathName: string, authOverride?: string): Promise<void> {
+  await mtxFetch(`/v3/config/paths/delete/${encodeURIComponent(pathName)}`, { method: "DELETE" }, authOverride)
+}
+
 export interface EventRuntime {
   online: boolean
   readyTime: string | null

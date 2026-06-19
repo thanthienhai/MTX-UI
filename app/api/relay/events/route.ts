@@ -1,5 +1,17 @@
-import { createEvent } from "@/lib/relay-server"
+import { createEvent, listEventsForAdmin } from "@/lib/relay-server"
 import { requireDashboardAuth, unauthorizedResponse } from "@/lib/server-auth"
+
+/** Admin-only: list every relay event with live runtime for the dashboard. */
+export async function GET(request: Request) {
+  const cred = requireDashboardAuth(request)
+  if (!cred) return unauthorizedResponse()
+  try {
+    const events = await listEventsForAdmin()
+    return Response.json({ events }, { headers: { "cache-control": "no-store" } })
+  } catch {
+    return Response.json({ error: "Không tải được danh sách sự kiện" }, { status: 502 })
+  }
+}
 
 /**
  * Admin-only: create a new relay event (a MediaMTX path keyed by a secret).
