@@ -89,7 +89,8 @@ assert.match(meta.slug, /^[A-Za-z0-9]{20}$/)
 assert.ok(meta.statusToken && meta.configToken)
 assert.equal(meta.destinations.length, 0)
 const emptyRor = buildRunOnReady(meta)
-assert.ok(emptyRor.startsWith(": " + META_PREFIX), "empty fan-out degrades to no-op comment")
+assert.ok(emptyRor.startsWith("sh -c "), "runOnReady wrapped in sh -c for real-shell semantics")
+assert.ok(emptyRor.includes(": " + META_PREFIX), "empty fan-out degrades to no-op comment")
 assert.deepEqual(parseRunOnReady(emptyRor), meta, "meta survives in no-op runOnReady")
 
 /* runOnReady with enabled destinations -> ffmpeg tee ------------------- */
@@ -99,7 +100,8 @@ meta.destinations.push(
   { id: "d3", name: "Custom", platform: "custom", serverUrl: "rtmp://c/app", streamKey: "k3", enabled: true },
 )
 const ror = buildRunOnReady(meta)
-assert.ok(ror.startsWith("ffmpeg "), "fan-out emits ffmpeg")
+assert.ok(ror.startsWith("sh -c "), "fan-out wrapped in sh -c")
+assert.ok(ror.includes("ffmpeg "), "fan-out emits ffmpeg")
 assert.ok(ror.includes("-f tee "), "uses tee muxer")
 assert.ok(ror.includes("rtmps://a/rtmp/k1"), "includes enabled dest 1")
 assert.ok(ror.includes("rtmp://c/app/k3"), "includes enabled dest 3")
@@ -132,10 +134,10 @@ assert.equal(verifySessionToken(createSessionToken(cfgToken, secret, -1000), cfg
 /* relayEnabled gate ----------------------------------------------------- */
 const relayOff = setMetaRelayEnabled(meta, false)
 const offRor = buildRunOnReady(relayOff)
-assert.ok(!offRor.startsWith("ffmpeg "), "relay off -> no ffmpeg even with enabled dests")
+assert.ok(!offRor.includes("ffmpeg "), "relay off -> no ffmpeg even with enabled dests")
 assert.deepEqual(parseRunOnReady(offRor), relayOff, "meta survives when relay off")
 const relayOn = setMetaRelayEnabled(meta, true)
-assert.ok(buildRunOnReady(relayOn).startsWith("ffmpeg "), "relay on -> ffmpeg")
+assert.ok(buildRunOnReady(relayOn).includes("ffmpeg "), "relay on -> ffmpeg")
 
 /* login code mutation --------------------------------------------------- */
 const changed = setMetaLoginCode(meta, "newSecret123")

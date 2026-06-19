@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:latest-ffmpeg
     container_name: mediamtx-server
     ports:
       - "8554:8554"

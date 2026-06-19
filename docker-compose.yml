@@ -57,7 +57,7 @@ services:
 
 
   publisher:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:latest-ffmpeg
     container_name: mediamtx-publisher
     restart: unless-stopped
     volumes:

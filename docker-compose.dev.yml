@@ -28,7 +28,7 @@ x-healthcheck-defaults: &healthcheck_defaults
 services:
   publisher:
     <<: [*restart_policy, *pull_policy]
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:latest-ffmpeg
     container_name: mediamtx-publisher
     ports:
       - "9998:9998"

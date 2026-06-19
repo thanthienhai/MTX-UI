@@ -9,7 +9,9 @@ import { findEventByToken } from "@/lib/relay-server"
  * preview cannot be used to enumerate other paths.
  *
  * Playlists use relative segment names, which resolve against this route's
- * own URL — so sub-requests stay gated by the same token.
+ * own URL — so sub-requests stay gated by the same token. The original query
+ * string is forwarded too, since Low-Latency HLS carries a `?session=` token
+ * on child-playlist and part requests that the muxer needs to match.
  */
 
 const DEFAULT_HLS_URL = "http://localhost:8888"
@@ -20,7 +22,7 @@ function internalHlsBase(): string {
   return configured.trim().replace(/\/+$/, "")
 }
 
-export async function GET(_request: Request, context: { params: Promise<{ token?: string; seg?: string[] }> }) {
+export async function GET(request: Request, context: { params: Promise<{ token?: string; seg?: string[] }> }) {
   const { token, seg = [] } = await context.params
   if (!token) {
     return new Response("Not found", { status: 404 })
@@ -39,7 +41,9 @@ export async function GET(_request: Request, context: { params: Promise<{ token?
   // Guard against traversal: only forward simple path segments.
   const safeSeg = seg.filter((s) => s && s !== "." && s !== ".." && !s.includes("/"))
   const tail = safeSeg.length > 0 ? safeSeg.map(encodeURIComponent).join("/") : "index.m3u8"
-  const upstream = `${internalHlsBase()}/${encodeURIComponent(event.pathName)}/${tail}`
+  // Forward the query string (e.g. LL-HLS `?session=...`) to the muxer.
+  const search = new URL(request.url).search
+  const upstream = `${internalHlsBase()}/${encodeURIComponent(event.pathName)}/${tail}${search}`
 
   let res: Response
   try {

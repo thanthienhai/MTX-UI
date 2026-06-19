@@ -1,0 +1,58 @@
+services:
+  mediamtx:
+    # Official image with bundled ffmpeg (required for runOnReady relay fan-out)
+    image: bluenviron/mediamtx:latest-ffmpeg
+    # Or build from source (uncomment below, comment above)
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: mediamtx
+    restart: unless-stopped
+
+    ports:
+      # RTSP - TCP
+      - "8554:8554"
+      # RTMP - TCP
+      - "1935:1935"
+      # HLS - TCP
+      - "8888:8888"
+      # WebRTC - TCP (HTTP handshake)
+      - "8889:8889"
+      # WebRTC - UDP (ICE)
+      - "8189:8189/udp"
+      # SRT - UDP
+      - "8890:8890/udp"
+      # RTP/RTCP - UDP (for RTSP UDP transport)
+      - "8000:8000/udp"
+      - "8001:8001/udp"
+      # Control API - TCP
+      - "9997:9997"
+      # Metrics - TCP
+      - "9998:9998"
+
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./recordings:/recordings
+      - ./data:/data
+
+    environment:
+      - TZ=UTC
+
+  # Example publisher: pushes a test stream via RTSP to mediamtx
+  publisher:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    container_name: mediamtx-publisher
+    restart: unless-stopped
+    depends_on:
+      - mediamtx
+    # The image's entrypoint is the mediamtx binary; override it so the command
+    # below runs ffmpeg (which is bundled in the -ffmpeg image).
+    entrypoint: ffmpeg
+    command: >
+      -re -f lavfi -i testsrc2=size=1280x720:rate=30
+      -f lavfi -i sine=frequency=440
+      -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -b:v 1000k
+      -c:a aac -b:a 128k -f rtsp
+      rtsp://mediamtx:8554/test
+    environment:
+      - TZ=UTC

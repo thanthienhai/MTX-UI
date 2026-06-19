@@ -312,7 +312,7 @@ await server.setEventRelay(event, false)
 const relayBody = calls[0].body as Record<string, unknown>
 const relayMeta = parseRunOnReady(relayBody.runOnReady as string)
 assert.equal(relayMeta.relayEnabled, false, "relay off persisted to meta")
-assert.ok(!(relayBody.runOnReady as string).startsWith("ffmpeg "), "no ffmpeg when relay off")
+assert.ok(!(relayBody.runOnReady as string).includes("ffmpeg "), "no ffmpeg when relay off")
 
 /* ------------------------------------------------------------------ */
 /* rotateEventStreamId: add new path + delete old, preserve share tokens */

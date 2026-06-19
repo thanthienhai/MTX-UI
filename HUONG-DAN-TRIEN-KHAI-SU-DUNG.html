@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hướng dẫn triển khai & sử dụng — Hệ thống Relay đa nền tảng (MTX-UI)</title>
+<style>
+  :root {
+    --blue: #0052ff;
+    --blue-dark: #003ecc;
+    --ink: #1b1f24;
+    --muted: #5b6470;
+    --line: #dee1e6;
+    --bg-soft: #f6f8fb;
+    --green: #0a7d4d;
+    --green-bg: #e8f7ef;
+    --amber-bg: #fff7e6;
+    --amber-line: #f0c674;
+    --red: #b3261e;
+    --red-bg: #fdecea;
+    --code-bg: #0f172a;
+    --code-ink: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    line-height: 1.65;
+    background: #fff;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 96px; }
+  header.hero {
+    background: linear-gradient(135deg, #0052ff 0%, #6a3cff 100%);
+    color: #fff;
+    padding: 48px 24px 40px;
+    margin-bottom: 32px;
+  }
+  header.hero .inner { max-width: 980px; margin: 0 auto; }
+  header.hero h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: -.3px; }
+  header.hero p { margin: 0; opacity: .92; font-size: 16px; }
+  header.hero .meta { margin-top: 18px; font-size: 13px; opacity: .85; }
+  header.hero .tag {
+    display: inline-block; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35);
+    padding: 2px 10px; border-radius: 999px; font-size: 12px; margin-right: 8px;
+  }
+  h2 {
+    font-size: 22px; margin: 44px 0 14px; padding-bottom: 8px;
+    border-bottom: 2px solid var(--line); letter-spacing: -.2px;
+  }
+  h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; background: var(--blue); color: #fff;
+    border-radius: 8px; font-size: 15px; margin-right: 10px; vertical-align: middle;
+  }
+  h3 { font-size: 17px; margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 24px; }
+  li { margin: 5px 0; }
+  code {
+    background: #eef1f6; padding: 1.5px 6px; border-radius: 5px;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: .9em;
+    color: #1d3b8b;
+  }
+  pre {
+    background: var(--code-bg); color: var(--code-ink); padding: 16px 18px;
+    border-radius: 10px; overflow-x: auto; font-size: 13.5px; line-height: 1.55;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+  .callout {
+    border-radius: 10px; padding: 14px 18px; margin: 16px 0; border: 1px solid;
+  }
+  .callout.info { background: var(--bg-soft); border-color: var(--line); }
+  .callout.ok { background: var(--green-bg); border-color: #aee5c8; }
+  .callout.warn { background: var(--amber-bg); border-color: var(--amber-line); }
+  .callout.danger { background: var(--red-bg); border-color: #f3b4ae; }
+  .callout .t { font-weight: 700; display: block; margin-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-soft); font-weight: 600; }
+  td code { white-space: nowrap; }
+  .toc { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 18px 24px; }
+  .toc ol { columns: 2; column-gap: 32px; }
+  .toc a { color: var(--blue); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .step { display: flex; gap: 14px; margin: 14px 0; }
+  .step .n {
+    flex: 0 0 28px; height: 28px; background: var(--blue); color: #fff; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;
+  }
+  .pill { display:inline-block; padding:1px 9px; border-radius:999px; font-size:12px; font-weight:600; }
+  .pill.green { background: var(--green-bg); color: var(--green); }
+  .pill.red { background: var(--red-bg); color: var(--red); }
+  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .role-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .role-card h3 { margin-top: 0; }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  @media (max-width: 720px) {
+    .toc ol { columns: 1; }
+    .role-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="inner">
+    <h1>Hệ thống Relay đa nền tảng trên nền MediaMTX</h1>
+    <p>Tài liệu triển khai &amp; hướng dẫn sử dụng — ứng dụng quản trị <strong>MTX-UI</strong> (Next.js 15)</p>
+    <div class="meta">
+      <span class="tag">Phiên bản tài liệu 1.0</span>
+      <span class="tag">Cập nhật 19/06/2026</span>
+      <span class="tag">Môi trường: Develop/Test</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="callout info">
+    <span class="t">Tài liệu này dành cho ai?</span>
+    Gồm 2 phần: <strong>(A) Triển khai &amp; vận hành</strong> dành cho quản trị viên hệ thống (DevOps), và
+    <strong>(B) Hướng dẫn sử dụng</strong> dành cho người tổ chức buổi phát (admin sự kiện) và người dùng cuối
+    (người cầm vMix/OBS đẩy luồng).
+  </div>
+
+  <nav class="toc">
+    <strong>Mục lục</strong>
+    <ol>
+      <li><a href="#tong-quan">Tổng quan hệ thống</a></li>
+      <li><a href="#kien-truc">Kiến trúc &amp; khái niệm cốt lõi</a></li>
+      <li><a href="#yeu-cau">Yêu cầu hạ tầng &amp; cổng mạng</a></li>
+      <li><a href="#trien-khai-backend">Triển khai backend (MediaMTX)</a></li>
+      <li><a href="#cau-hinh-frontend">Cấu hình &amp; chạy frontend (MTX-UI)</a></li>
+      <li><a href="#admin">Hướng dẫn cho Admin: tạo sự kiện</a></li>
+      <li><a href="#nguoi-dung">Hướng dẫn người dùng: cấu hình &amp; phát</a></li>
+      <li><a href="#trang-trang-thai">Trang trạng thái (chia sẻ)</a></li>
+      <li><a href="#xu-ly-su-co">Xử lý sự cố thường gặp</a></li>
+      <li><a href="#kiem-thu">Kịch bản kiểm thử (verify)</a></li>
+    </ol>
+  </nav>
+
+  <!-- 1 -->
+  <h2 id="tong-quan"><span class="num">1</span>Tổng quan hệ thống</h2>
+  <p>
+    Hệ thống cho phép một người dùng đẩy <strong>một luồng video duy nhất</strong> (từ vMix, OBS, hoặc bất kỳ
+    công cụ nào hỗ trợ RTMP/SRT) lên máy chủ, sau đó <strong>tự động phân phối (fan-out) ra nhiều nền tảng
+    cùng lúc</strong> — Facebook, YouTube, hoặc đích RTMP tùy chỉnh — kèm theo ghi hình, xem trước (preview) và
+    nguồn dự phòng.
+  </p>
+  <p>Mỗi buổi phát được mô hình hóa thành một <strong>“sự kiện” (event)</strong>. Người tổ chức tạo sự kiện trong
+    trang quản trị rồi giao cho người dùng 3 thứ:</p>
+  <ul>
+    <li><strong>Khóa ingest</strong> bí mật để cấu hình vMix/OBS.</li>
+    <li><strong>Link cấu hình</strong> (kèm mã đăng nhập) để người dùng tự thêm/sửa các đích phát.</li>
+    <li><strong>Link trạng thái</strong> chỉ-đọc để chia sẻ cho người theo dõi buổi phát.</li>
+  </ul>
+  <div class="callout ok">
+    <span class="t">Nhiều sự kiện chạy song song</span>
+    Hệ thống hỗ trợ nhiều người dùng tổ chức nhiều buổi phát đồng thời — mỗi sự kiện độc lập, có khóa và link riêng.
+  </div>
+
+  <!-- 2 -->
+  <h2 id="kien-truc"><span class="num">2</span>Kiến trúc &amp; khái niệm cốt lõi</h2>
+  <table>
+    <tr><th>Khái niệm</th><th>Ý nghĩa</th></tr>
+    <tr><td><strong>Sự kiện = 1 path MediaMTX</strong></td>
+        <td>Tên path là một chuỗi bí mật ~20 ký tự — chính là khóa ingest. Không thể đoán nên không cần mật khẩu publish riêng.</td></tr>
+    <tr><td><strong>Lưu metadata trong path config</strong></td>
+        <td>Toàn bộ thông tin sự kiện (tên, token, danh sách đích, mã đăng nhập đã băm…) được nhúng trong trường <code>runOnReady</code> của path dưới dạng comment <code># RELAY_META:&lt;base64&gt;</code>. <strong>Không dùng cơ sở dữ liệu riêng.</strong></td></tr>
+    <tr><td><strong>Fan-out</strong></td>
+        <td>Khi có nguồn, MediaMTX chạy <code>ffmpeg … -f tee</code> để sao chép luồng ra tất cả đích đang bật (không re-encode, <code>-c copy</code>).</td></tr>
+    <tr><td><strong>Trang public ẩn danh</strong></td>
+        <td>Hai trang ngoài khu vực đăng nhập admin: <code>/public/config/&lt;token&gt;</code> và <code>/public/status/&lt;token&gt;</code>. Mọi truy vấn đi qua API server-side, dùng thông tin admin phía máy chủ — <strong>không lộ thông tin đăng nhập MediaMTX cho khách</strong>.</td></tr>
+    <tr><td><strong>Token phân quyền</strong></td>
+        <td><code>configToken</code> (cần mã đăng nhập, cho phép chỉnh sửa) và <code>statusToken</code> (chỉ đọc). Mỗi token có thể xoay (rotate) khi cần thu hồi.</td></tr>
+  </table>
+
+  <div class="callout warn">
+    <span class="t">Quan trọng về codec</span>
+    Vì fan-out dùng <code>-c copy</code> (không mã hóa lại để tiết kiệm CPU), <strong>nguồn đẩy vào phải là H.264 + AAC</strong>
+    đúng chuẩn mọi nền tảng yêu cầu. Hãy cấu hình vMix/OBS xuất H.264 (video) + AAC (audio).
+  </div>
+
+  <!-- 3 -->
+  <h2 id="yeu-cau"><span class="num">3</span>Yêu cầu hạ tầng &amp; cổng mạng</h2>
+  <p>Backend chạy bằng Docker. Cần mở các cổng sau trên máy chủ MediaMTX:</p>
+  <table>
+    <tr><th>Cổng</th><th>Giao thức</th><th>Vai trò</th></tr>
+    <tr><td><code>1935</code></td><td>TCP</td><td>RTMP — ingest từ vMix/OBS và đẩy ra nền tảng</td></tr>
+    <tr><td><code>8554</code></td><td>TCP</td><td>RTSP — nguồn nội bộ cho fan-out</td></tr>
+    <tr><td><code>8890</code></td><td>UDP</td><td>SRT — ingest độ trễ thấp (tùy chọn)</td></tr>
+    <tr><td><code>8888</code></td><td>TCP</td><td>HLS — xem trước (preview) qua proxy</td></tr>
+    <tr><td><code>8889</code> + <code>8189</code></td><td>TCP + UDP</td><td>WebRTC (tùy chọn)</td></tr>
+    <tr><td><code>9997</code></td><td>TCP</td><td>Control API — frontend gọi vào (có Basic Auth)</td></tr>
+    <tr><td><code>9998</code></td><td>TCP</td><td>Metrics (nếu bật)</td></tr>
+  </table>
+  <div class="callout danger">
+    <span class="t">Image MediaMTX BẮT BUỘC phải có ffmpeg</span>
+    Fan-out hoạt động bằng cách MediaMTX <em>tự chạy ffmpeg bên trong container server</em>. Image mặc định
+    <code>bluenviron/mediamtx:latest</code> là <strong>distroless — KHÔNG có ffmpeg và KHÔNG có shell</strong>, khiến fan-out
+    “im lặng không làm gì”. <strong>Phải dùng <code>bluenviron/mediamtx:latest-ffmpeg</code></strong> (nền Alpine, có sẵn ffmpeg 8.x và <code>/bin/sh</code>).
+  </div>
+
+  <!-- 4 -->
+  <h2 id="trien-khai-backend"><span class="num">4</span>Triển khai backend (MediaMTX)</h2>
+  <p>File <code>docker-compose</code> gồm hai service: <strong>máy chủ MediaMTX</strong> và <strong>publisher</strong> (luồng test, tùy chọn).</p>
+
+  <h3>4.1. File docker-compose mẫu</h3>
+  <pre><code>services:
+  mediamtx:
+    # BẮT BUỘC dùng tag -ffmpeg để fan-out chạy được
+    image: bluenviron/mediamtx:latest-ffmpeg
+    container_name: mediamtx
+    restart: unless-stopped
+    ports:
+      - "8554:8554"        # RTSP
+      - "1935:1935"        # RTMP
+      - "8888:8888"        # HLS
+      - "8889:8889"        # WebRTC (TCP)
+      - "8189:8189/udp"    # WebRTC (UDP)
+      - "8890:8890/udp"    # SRT (UDP)
+      - "9997:9997"        # Control API
+      - "9998:9998"        # Metrics
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./recordings:/recordings
+      - ./data:/data
+    environment:
+      - TZ=UTC
+
+  # (Tùy chọn) Luồng test để kiểm thử — đẩy testsrc vào path "test"
+  publisher:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    container_name: mediamtx-publisher
+    restart: unless-stopped
+    depends_on:
+      - mediamtx
+    # Entrypoint của image là binary mediamtx — phải override sang ffmpeg
+    entrypoint: ffmpeg
+    command: >
+      -re -f lavfi -i testsrc2=size=1280x720:rate=30
+      -f lavfi -i sine=frequency=440
+      -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -b:v 1000k
+      -c:a aac -b:a 128k -f rtsp
+      rtsp://mediamtx:8554/test</code></pre>
+
+  <div class="callout warn">
+    <span class="t">Hai lưu ý dễ sai ở service publisher</span>
+    <ul style="margin:6px 0 0;">
+      <li>Phải có <code>entrypoint: ffmpeg</code>. Nếu thiếu, các tham số <code>-re …</code> sẽ bị truyền cho binary <em>mediamtx</em> → lỗi <code>unknown flag -r</code>.</li>
+      <li>Dùng <code>sine=frequency=440</code> (không kèm <code>duration=1</code>), nếu không âm thanh sẽ tắt sau 1 giây.</li>
+    </ul>
+  </div>
+
+  <h3>4.2. Xác thực Control API</h3>
+  <p>File <code>mediamtx.yml</code> nên bật <code>authMethod: internal</code> với tối thiểu:</p>
+  <ul>
+    <li>Người dùng <code>admin</code> (mật khẩu riêng) có quyền <code>api</code> — frontend dùng để quản trị path.</li>
+    <li>Người dùng <code>any</code> (ẩn danh) có quyền <code>publish</code> + <code>read</code> + <code>playback</code> — để vMix/OBS đẩy và HLS đọc không cần mật khẩu (khóa ingest đã bí mật).</li>
+  </ul>
+
+  <h3>4.3. Khởi chạy &amp; kiểm tra</h3>
+  <pre><code># Trên máy chủ backend
+docker compose pull
+docker compose up -d
+
+# Xác nhận server có ffmpeg (PHẢI in ra version)
+docker compose exec mediamtx ffmpeg -version
+
+# Kiểm tra Control API
+curl -u admin:&lt;mật_khẩu&gt; http://&lt;IP&gt;:9997/v3/paths/list</code></pre>
+
+  <!-- 5 -->
+  <h2 id="cau-hinh-frontend"><span class="num">5</span>Cấu hình &amp; chạy frontend (MTX-UI)</h2>
+  <p>Tạo file <code>.env.local</code> (môi trường dev) hoặc <code>.env</code> (production/Docker) trỏ về backend:</p>
+  <table>
+    <tr><th>Biến môi trường</th><th>Ý nghĩa</th></tr>
+    <tr><td><code>MEDIAMTX_API_URL</code></td><td>URL Control API mà <strong>máy chủ frontend</strong> gọi vào, ví dụ <code>http://&lt;IP&gt;:9997</code></td></tr>
+    <tr><td><code>MEDIAMTX_ADMIN_USER</code> / <code>MEDIAMTX_ADMIN_PASS</code></td><td>Thông tin admin để frontend ghi cấu hình path (chỉ dùng phía server, không lộ ra trình duyệt)</td></tr>
+    <tr><td><code>MEDIAMTX_HLS_URL</code> / <code>NEXT_PUBLIC_MEDIAMTX_HLS_URL</code></td><td>URL máy chủ HLS, ví dụ <code>http://&lt;IP&gt;:8888</code> (dùng cho preview qua proxy)</td></tr>
+    <tr><td><code>NEXT_PUBLIC_MEDIAMTX_RTMP_HOST</code> / <code>_RTMP_ADDRESS</code></td><td>Hostname &amp; địa chỉ RTMP public để hiển thị URL ingest cho người dùng, ví dụ <code>&lt;IP&gt;</code> và <code>&lt;IP&gt;:1935</code></td></tr>
+    <tr><td><code>NEXT_PUBLIC_MEDIAMTX_SRT_HOST</code> / <code>_SRT_ADDRESS</code></td><td>Tương tự cho SRT, ví dụ <code>&lt;IP&gt;</code> và <code>&lt;IP&gt;:8890</code></td></tr>
+    <tr><td><code>RELAY_SESSION_SECRET</code></td><td>Chuỗi bí mật ngẫu nhiên để ký cookie phiên của trang cấu hình public. <strong>Bắt buộc đặt ở production.</strong></td></tr>
+  </table>
+
+  <div class="callout danger">
+    <span class="t">Không commit thông tin nhạy cảm</span>
+    File <code>.env.local</code> chứa mật khẩu admin &amp; secret — <strong>không được đưa lên git</strong>. Ở production, đặt
+    <code>RELAY_SESSION_SECRET</code> bằng chuỗi ngẫu nhiên đủ dài và bật HTTPS (cookie phiên sẽ có cờ <code>Secure</code>).
+  </div>
+
+  <h3>Chạy frontend</h3>
+  <pre><code># Phát triển
+npm install
+npm run dev          # mặc định http://localhost:3000
+
+# Production (Docker)
+docker compose up -d dashboard</code></pre>
+
+  <!-- 6 -->
+  <h2 id="admin"><span class="num">6</span>Hướng dẫn cho Admin: tạo sự kiện</h2>
+  <p>Trong dashboard, mở tab <strong>“Paths”</strong> → thẻ <strong>“Sự kiện relay (public)”</strong>.</p>
+  <div class="step"><div class="n">1</div><div>Nhập <strong>Tên sự kiện</strong> (ví dụ tên người tổ chức) và <strong>Quota luồng</strong> (số đích tối đa được bật cùng lúc, mặc định 10).</div></div>
+  <div class="step"><div class="n">2</div><div>Bấm <strong>“Tạo sự kiện”</strong>. Hệ thống sinh ra một path bí mật + các token.</div></div>
+  <div class="step"><div class="n">3</div><div>Màn hình hiện 4 ô (đều có nút Copy):
+    <ul>
+      <li><strong>Khóa ingest (path)</strong> — đưa cho người dùng cấu hình vMix/OBS.</li>
+      <li><strong>Mã đăng nhập</strong> — để mở trang cấu hình. <span class="pill red">Chỉ hiển thị MỘT LẦN</span></li>
+      <li><strong>Link cấu hình</strong> — <code>/public/config/&lt;configToken&gt;</code></li>
+      <li><strong>Link trạng thái</strong> — <code>/public/status/&lt;statusToken&gt;</code></li>
+    </ul>
+  </div></div>
+  <div class="callout danger">
+    <span class="t">Mã đăng nhập không thể khôi phục</span>
+    Hệ thống chỉ lưu bản băm (salted hash). Nếu làm mất mã, người dùng phải dùng chức năng
+    <em>“Tạo lại mã đăng nhập”</em> trong trang cấu hình (cần đang có phiên) hoặc admin tạo sự kiện mới.
+  </div>
+
+  <!-- 7 -->
+  <h2 id="nguoi-dung"><span class="num">7</span>Hướng dẫn người dùng: cấu hình &amp; phát</h2>
+
+  <div class="role-grid">
+    <div class="role-card">
+      <h3>Bước 1 — Cấu hình vMix / OBS</h3>
+      <p>Dùng <strong>Khóa ingest</strong> admin đã cấp. Trỏ phần mềm phát đến:</p>
+      <p><strong>RTMP:</strong></p>
+      <pre><code>URL:   rtmp://&lt;IP&gt;:1935
+Khóa:  &lt;khóa-ingest&gt;</code></pre>
+      <p>Hoặc <strong>SRT</strong> (độ trễ thấp): dùng địa chỉ <code>srt://&lt;IP&gt;:8890</code> với <code>streamid=publish:&lt;khóa-ingest&gt;</code>.</p>
+      <p>Cấu hình mã hóa: <strong>Video H.264, Audio AAC.</strong></p>
+    </div>
+    <div class="role-card">
+      <h3>Bước 2 — Mở trang cấu hình</h3>
+      <p>Truy cập <strong>Link cấu hình</strong>, nhập <strong>mã đăng nhập</strong>. Phiên làm việc được giữ bằng cookie an toàn (HttpOnly).</p>
+      <p>Tại đây người dùng tự quản lý toàn bộ buổi phát mà không cần đụng đến trang admin.</p>
+    </div>
+  </div>
+
+  <h3>Các chức năng trong trang cấu hình</h3>
+  <table>
+    <tr><th>Chức năng</th><th>Mô tả</th></tr>
+    <tr><td><strong>Thêm / sửa / xóa đích phát</strong></td><td>Mỗi đích gồm: tên, nền tảng (Facebook/YouTube/Custom), server URL, stream key, bật/tắt. Số đích đang bật bị giới hạn bởi quota.</td></tr>
+    <tr><td><strong>Bật / tắt relay</strong></td><td>Tạm dừng toàn bộ fan-out mà vẫn giữ cấu hình các đích.</td></tr>
+    <tr><td><strong>Bật / tắt ghi hình</strong></td><td>Ghi lại buổi phát trên máy chủ.</td></tr>
+    <tr><td><strong>Xoay khóa ingest</strong> (rotate stream id)</td><td>Đổi khóa ingest mới (thu hồi khóa cũ); link cấu hình/trạng thái giữ nguyên.</td></tr>
+    <tr><td><strong>Đổi mã đăng nhập</strong> / <strong>tạo lại mã</strong></td><td>Thay đổi hoặc cấp lại mã vào trang cấu hình.</td></tr>
+    <tr><td><strong>Xoay token trạng thái / cấu hình</strong></td><td>Thu hồi link đã chia sẻ bằng cách cấp token mới.</td></tr>
+    <tr><td><strong>Nguồn dự phòng (fallback)</strong></td><td>Cấu hình nội dung thay thế (chữ/ảnh/video) khi mất nguồn chính.</td></tr>
+    <tr><td><strong>Xem trước (preview)</strong></td><td>Xem luồng HLS trực tiếp qua proxy có kiểm soát bằng token (không lộ host nội bộ).</td></tr>
+  </table>
+
+  <div class="callout ok">
+    <span class="t">Quy trình điển hình của một buổi phát</span>
+    <ol style="margin:6px 0 0;">
+      <li>Người dùng nhận khóa ingest + 2 link từ admin.</li>
+      <li>Mở trang cấu hình, thêm các đích (FB/YT/…) và bật relay.</li>
+      <li>Cấu hình vMix/OBS bằng khóa ingest, bắt đầu phát.</li>
+      <li>Trạng thái chuyển <span class="pill green">Online</span>, fan-out tự đẩy ra mọi đích đang bật; theo dõi qua preview.</li>
+      <li>Chia sẻ link trạng thái cho người liên quan.</li>
+    </ol>
+  </div>
+
+  <!-- 8 -->
+  <h2 id="trang-trang-thai"><span class="num">8</span>Trang trạng thái (chia sẻ)</h2>
+  <p>Link trạng thái (<code>/public/status/&lt;statusToken&gt;</code>) là trang <strong>chỉ đọc, không cần đăng nhập</strong>, dùng để chia sẻ rộng. Nó hiển thị:</p>
+  <ul>
+    <li>Tên sự kiện và trạng thái nguồn (Online/Offline).</li>
+    <li>Bản xem trước (preview) khi đang phát.</li>
+    <li>Danh sách đích phát với <strong>stream key đã được che (masked)</strong>.</li>
+    <li>Thông số luồng (số track, lưu lượng) cập nhật theo chu kỳ.</li>
+  </ul>
+  <div class="callout warn">
+    <span class="t">Bảo mật trang trạng thái</span>
+    Trang trạng thái <strong>không bao giờ lộ</strong> khóa ingest, URL đẩy đầy đủ, hay stream key thật. Người xem chỉ
+    biết buổi phát đang chạy, không thể chiếm quyền hay chen luồng.
+  </div>
+
+  <!-- 9 -->
+  <h2 id="xu-ly-su-co"><span class="num">9</span>Xử lý sự cố thường gặp</h2>
+  <table>
+    <tr><th>Triệu chứng</th><th>Nguyên nhân &amp; cách khắc phục</th></tr>
+    <tr>
+      <td><strong>Nguồn Online nhưng các nền tảng không nhận được luồng</strong> (fan-out “im lặng”)</td>
+      <td>Image server không có ffmpeg. Kiểm tra <code>docker compose exec mediamtx ffmpeg -version</code>. Nếu lỗi → đổi image sang <code>bluenviron/mediamtx:latest-ffmpeg</code>, rồi <code>docker compose pull mediamtx &amp;&amp; docker compose up -d --force-recreate mediamtx</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>Container publisher báo</strong> <code>mediamtx: error: unknown flag -r</code></td>
+      <td>Thiếu <code>entrypoint: ffmpeg</code> ở service publisher → tham số ffmpeg bị truyền cho binary mediamtx. Thêm dòng <code>entrypoint: ffmpeg</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>Âm thanh luồng test tắt sau ~1 giây</strong></td>
+      <td>Bộ lọc <code>sine=…:duration=1</code> chỉ phát 1 giây. Bỏ <code>duration=1</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>Preview HLS lỗi 401 / không phát được</strong></td>
+      <td>Proxy phải chuyển tiếp query-string <code>?session=…</code> của LL-HLS. Bản hiện tại đã xử lý; nếu tự sửa, đảm bảo route HLS giữ nguyên <code>search</code> khi gọi upstream.</td>
+    </tr>
+    <tr>
+      <td><strong>SRT không kết nối</strong></td>
+      <td>Cổng <code>8890</code> phải map dạng <strong>UDP</strong> (<code>8890:8890/udp</code>), không phải TCP.</td>
+    </tr>
+    <tr>
+      <td><strong>Truy cập link sai → 404</strong></td>
+      <td>Đúng thiết kế. Token không khớp hoặc nhầm loại (configToken trên endpoint status) đều trả 404 để tránh dò quét.</td>
+    </tr>
+  </table>
+
+  <div class="callout info">
+    <span class="t">Ghi chú kỹ thuật (cho người bảo trì)</span>
+    MediaMTX chạy <code>runOnReady</code> bằng <em>exec trực tiếp có tách tham số theo dấu nháy, KHÔNG qua shell</em>.
+    Do đó <code>#</code> không phải comment và <code>:</code> không phải lệnh rỗng. Hệ thống bọc lệnh trong
+    <code>sh -c '…'</code> (nhờ image <code>-ffmpeg</code> có <code>/bin/sh</code>) để comment metadata và no-op hoạt động đúng.
+    Với ffmpeg 8.x, timeout đọc RTSP dùng cờ <code>-timeout</code> (không phải <code>-rw_timeout</code>).
+  </div>
+
+  <!-- 10 -->
+  <h2 id="kiem-thu"><span class="num">10</span>Kịch bản kiểm thử (verify)</h2>
+  <p>Bộ script kiểm thử chạy trực tiếp các route handler với <code>fetch</code> thật vào backend (không cần dựng <code>next dev</code>):</p>
+  <table>
+    <tr><th>Script</th><th>Mục đích</th></tr>
+    <tr><td><code>scripts/verify-fanout-dataplane.ts</code></td><td>Xác nhận fan-out CHẠY THẬT (đích loopback trở thành publisher).</td></tr>
+    <tr><td><code>scripts/integration-relay-live.ts</code></td><td>Bộ tích hợp đầy đủ A–H: tạo sự kiện, đăng nhập, đích, ghi hình, xoay token, online + preview.</td></tr>
+    <tr><td><code>scripts/verify-hls-query.ts</code></td><td>Kiểm tra proxy HLS chuyển tiếp đúng query-string LL-HLS.</td></tr>
+    <tr><td><code>scripts/test-relay-event.mjs</code> và các <code>test-relay-*.ts</code></td><td>Unit/route test cho mã hóa metadata, sinh lệnh fan-out, bảo mật, các action.</td></tr>
+  </table>
+  <pre><code># Ví dụ chạy (Node 24+, có hỗ trợ TypeScript stripping)
+node --import ./scripts/test-register.mjs scripts/verify-fanout-dataplane.ts
+# Kỳ vọng:  ✓ FAN-OUT CHẠY THẬT</code></pre>
+
+  <footer>
+    Tài liệu kỹ thuật nội bộ — Hệ thống Relay đa nền tảng trên MediaMTX (MTX-UI).
+    Môi trường tham chiếu: develop/test. Vui lòng cập nhật thông tin máy chủ &amp; secret theo môi trường thực tế trước khi triển khai production.
+  </footer>
+
+</div>
+</body>
+</html>

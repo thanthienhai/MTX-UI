@@ -195,7 +195,7 @@ res = await configRoute.POST(
   ctx(fixtureMeta.configToken),
 )
 assert.equal(res.status, 200)
-assert.ok(!fixtureRunOnReady.startsWith("ffmpeg "), "relay off persisted")
+assert.ok(!fixtureRunOnReady.includes("ffmpeg "), "relay off persisted")
 
 /* add_destination + quota happy path */
 res = await configRoute.POST(
