@@ -78,7 +78,9 @@ assert.equal(overview.serviceStatus.api, "enabled")
 assert.equal(overview.serviceStatus.metrics, "disabled")
 assert.equal(overview.serviceStatus.playback, "enabled")
 assert.equal(overview.streams.configuredPaths, 1)
+assert.equal(overview.streams.totalPaths, 1)
 assert.equal(overview.streams.readyPaths, 1)
+assert.equal(overview.streams.idlePaths, 0)
 assert.equal(overview.streams.totalReaders, 1)
 assert.equal(overview.streams.protocolSummary.rtsp, 1)
 assert.equal(overview.streams.protocolSummary.rtmp, 2)
@@ -90,3 +92,21 @@ const partialOverview = buildDashboardOverview({
   protocolCounts: { rtspSessions: -1, rtmpConnections: 1 },
 })
 assert.equal(partialOverview.streams.protocolSummary.rtsp, null)
+
+// Runtime stream published under the `all_others` catch-all (no explicit config
+// entry) must not make readyPaths exceed the total — the "2/1" regression.
+const overflowOverview = buildDashboardOverview({
+  paths: [{ name: "event-a" }, { name: "all_others" }],
+  livePaths: [
+    { name: "event-a", ready: true, readers: [] },
+    { name: "test", ready: true, readers: [] },
+  ],
+})
+assert.equal(overflowOverview.streams.configuredPaths, 1)
+assert.equal(overflowOverview.streams.readyPaths, 2)
+assert.equal(overflowOverview.streams.totalPaths, 2, "union of configured + runtime names")
+assert.equal(overflowOverview.streams.idlePaths, 0, "ready never exceeds total → no negative idle")
+assert.ok(
+  overflowOverview.streams.readyPaths <= overflowOverview.streams.totalPaths,
+  "ready must never exceed total",
+)

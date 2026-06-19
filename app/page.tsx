@@ -641,6 +641,7 @@ function MediaMTXDashboard() {
   const totalBytesReceived = overview.streams.trafficTotals.bytesReceived
   const totalBytesSent = overview.streams.trafficTotals.bytesSent
   const idleStreamsCount = overview.streams.idlePaths
+  const totalStreamsCount = overview.streams.totalPaths
   const canUseApi = permissions.api !== false
   const canUseMetrics = permissions.metrics !== false
   const canUsePprof = permissions.pprof !== false
@@ -945,12 +946,12 @@ function MediaMTXDashboard() {
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="flex items-center justify-between text-sm text-[#a8acb3]">
                       <span>Stream live</span>
-                      <span className="font-mono text-white">{activeStreamsCount}/{paths.length}</span>
+                      <span className="font-mono text-white">{activeStreamsCount}/{totalStreamsCount}</span>
                     </div>
                     <div className="mt-3 h-2 rounded-full bg-white/10">
                       <div
                         className="h-2 rounded-full bg-[#0052ff]"
-                        style={{ width: `${paths.length ? (activeStreamsCount / paths.length) * 100 : 0}%` }}
+                        style={{ width: `${totalStreamsCount ? (activeStreamsCount / totalStreamsCount) * 100 : 0}%` }}
                       />
                     </div>
                   </div>
