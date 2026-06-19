@@ -167,13 +167,19 @@ export interface PublicHosts {
   srtAddress?: string
 }
 
-export function getPublicHosts(): PublicHosts {
+/**
+ * Public host config for user-facing ingest URLs. Explicit `NEXT_PUBLIC_*`
+ * env hosts win; otherwise fall back to `fallbackHost` (the hostname the owner
+ * actually reached this page on) so ingest URLs point at the real server rather
+ * than the internal `localhost` default baked into `buildIngestUrls`.
+ */
+export function getPublicHosts(fallbackHost?: string): PublicHosts {
   return {
-    rtmpHost: process.env.NEXT_PUBLIC_MEDIAMTX_RTMP_HOST,
+    rtmpHost: process.env.NEXT_PUBLIC_MEDIAMTX_RTMP_HOST || fallbackHost,
     rtmpAddress: process.env.NEXT_PUBLIC_MEDIAMTX_RTMP_ADDRESS,
-    rtmpsHost: process.env.NEXT_PUBLIC_MEDIAMTX_RTMPS_HOST,
+    rtmpsHost: process.env.NEXT_PUBLIC_MEDIAMTX_RTMPS_HOST || fallbackHost,
     rtmpsAddress: process.env.NEXT_PUBLIC_MEDIAMTX_RTMPS_ADDRESS,
-    srtHost: process.env.NEXT_PUBLIC_MEDIAMTX_SRT_HOST,
+    srtHost: process.env.NEXT_PUBLIC_MEDIAMTX_SRT_HOST || fallbackHost,
     srtAddress: process.env.NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS,
   }
 }
@@ -356,9 +362,9 @@ export function isValidConfigSession(sessionToken: string | undefined, configTok
  * and SRT stream-ids are shown in full; destination stream keys remain masked
  * in the list view (full reveal/editing arrives with destination CRUD in GĐ3).
  */
-export async function buildConfigPayload(event: ResolvedEvent) {
+export async function buildConfigPayload(event: ResolvedEvent, requestHost?: string) {
   const runtime = await getEventRuntime(event.pathName)
-  const hosts = getPublicHosts()
+  const hosts = getPublicHosts(requestHost)
   const ingest = buildIngestUrls(event.meta.slug, hosts)
   const conf = await getPathConfRaw(event.pathName)
   const destinations = (event.meta.destinations ?? []).map((d) => ({

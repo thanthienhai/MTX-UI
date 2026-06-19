@@ -16,6 +16,17 @@ import {
   setEventFallback,
 } from "@/lib/relay-server"
 
+/** Hostname (no port) the owner reached this page on — used as the ingest-URL
+ * host when no explicit NEXT_PUBLIC_MEDIAMTX_*_HOST is configured. Prefers the
+ * proxy-forwarded host, then the Host header. */
+function requestHostname(request: Request): string | undefined {
+  const raw = request.headers.get("x-forwarded-host") || request.headers.get("host") || ""
+  const first = raw.split(",")[0].trim()
+  if (!first) return undefined
+  // Strip a trailing :port (leaves bracketed IPv6 literals intact).
+  return first.replace(/:\d+$/, "")
+}
+
 function readCookie(request: Request, name: string): string | undefined {
   const header = request.headers.get("cookie")
   if (!header) return undefined
@@ -50,7 +61,7 @@ export async function GET(request: Request, context: { params: Promise<{ token?:
   }
 
   try {
-    const payload = await buildConfigPayload(event)
+    const payload = await buildConfigPayload(event, requestHostname(request))
     return Response.json(payload, { headers: { "cache-control": "no-store" } })
   } catch {
     return Response.json({ error: "Upstream unavailable" }, { status: 502 })
