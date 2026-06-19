@@ -141,6 +141,8 @@ export async function POST(request: Request, context: { params: Promise<{ token?
           enabled: body.enabled !== false,
           text: typeof body.text === "string" ? body.text : undefined,
           assetRef: typeof body.assetRef === "string" ? body.assetRef : undefined,
+          assetName: typeof body.assetName === "string" ? body.assetName : undefined,
+          assetMime: typeof body.assetMime === "string" ? body.assetMime : undefined,
         })
         if (!r.ok) return Response.json({ error: r.error }, { status: 400 })
         return Response.json({ ok: true })

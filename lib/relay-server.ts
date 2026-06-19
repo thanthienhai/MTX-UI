@@ -33,6 +33,7 @@ import {
   rotateMetaConfigToken,
   regenerateMetaLoginCode,
   setMetaFallback,
+  buildRunOnNotReady,
 } from "@/lib/relay-event.mjs"
 import { recordAudit, getAuditFor, type AuditEntry } from "@/lib/relay-audit"
 
@@ -60,6 +61,16 @@ export interface EventMeta {
 }
 
 const DEFAULT_UPSTREAM_API_URL = "http://localhost:9997"
+
+/**
+ * Public base URL of THIS frontend, reachable from the MediaMTX server, so the
+ * standby ffmpeg (running inside the MediaMTX container) can fetch uploaded
+ * image/video assets over HTTP. Empty when unset — image/video fallback then
+ * stores intent but cannot activate at runtime.
+ */
+function assetBaseUrl(): string {
+  return (process.env.RELAY_ASSET_BASE_URL || "").trim().replace(/\/+$/, "")
+}
 
 function upstreamApiBase(): string {
   const configured =
@@ -393,7 +404,13 @@ export async function setEventRelay(event: ResolvedEvent, enabled: boolean, auth
   const meta = setMetaRelayEnabled(event.meta, enabled)
   await mtxFetch(
     `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
-    { method: "PATCH", body: JSON.stringify({ runOnReady: buildRunOnReady(meta) }) },
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        runOnReady: buildRunOnReady(meta),
+        runOnNotReady: buildRunOnNotReady(meta, { assetBaseUrl: assetBaseUrl() }),
+      }),
+    },
     authOverride,
   )
   audit("relay.set", event, { enabled: !!enabled })
@@ -416,7 +433,13 @@ export async function changeEventLoginCode(event: ResolvedEvent, newCode: string
 async function applyMetaPatch(event: ResolvedEvent, newMeta: EventMeta, authOverride?: string): Promise<void> {
   await mtxFetch(
     `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
-    { method: "PATCH", body: JSON.stringify({ runOnReady: buildRunOnReady(newMeta) }) },
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        runOnReady: buildRunOnReady(newMeta),
+        runOnNotReady: buildRunOnNotReady(newMeta, { assetBaseUrl: assetBaseUrl() }),
+      }),
+    },
     authOverride,
   )
 }
@@ -558,13 +581,14 @@ export interface FallbackInput {
   enabled?: boolean
   text?: string
   assetRef?: string
+  assetName?: string
+  assetMime?: string
 }
 
 /**
- * Persist fallback configuration in meta. Runtime activation (a standby ffmpeg
- * that takes over when the source disconnects) is intentionally out of scope —
- * it needs MediaMTX `runOnNotReady` integration plus reconnect-tolerant
- * destinations, which has to be verified against a live server.
+ * Persist fallback configuration in meta and (re)wire the standby ffmpeg via
+ * `runOnNotReady`. image/video require a previously-uploaded asset; activation
+ * also needs RELAY_ASSET_BASE_URL so the MediaMTX-side ffmpeg can fetch it.
  */
 export async function setEventFallback(
   event: ResolvedEvent,
@@ -575,8 +599,15 @@ export async function setEventFallback(
     return { ok: false, error: "Loại fallback không hợp lệ" }
   }
   if (input.type === "image" || input.type === "video") {
-    // Stored, but runtime won't activate without an asset pipeline.
-    return { ok: false, error: "Fallback dạng ảnh/video cần asset storage — chưa khả dụng" }
+    if (!input.assetRef) {
+      return { ok: false, error: "Cần tải lên tệp ảnh/video trước khi lưu" }
+    }
+    if (input.enabled !== false && !assetBaseUrl()) {
+      return {
+        ok: false,
+        error: "Chưa cấu hình RELAY_ASSET_BASE_URL — MediaMTX không đọc được asset để kích hoạt fallback",
+      }
+    }
   }
   const newMeta = setMetaFallback(event.meta, input) as EventMeta
   await applyMetaPatch(event, newMeta, authOverride)

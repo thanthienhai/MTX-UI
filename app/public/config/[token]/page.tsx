@@ -28,6 +28,8 @@ interface FallbackConfig {
   enabled: boolean
   text?: string
   assetRef?: string
+  assetName?: string
+  assetMime?: string
 }
 
 interface AuditEntry {
@@ -352,6 +354,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
         <FallbackCard
           fallback={data.fallback}
           busy={busy}
+          uploadUrl={`${apiBase}/asset`}
           postAction={postAction}
           onChanged={load}
         />
@@ -734,17 +737,24 @@ function SecurityCard({
 function FallbackCard({
   fallback,
   busy,
+  uploadUrl,
   postAction,
   onChanged,
 }: {
   fallback: FallbackConfig | null
   busy: boolean
+  uploadUrl: string
   postAction: PostActionFn
   onChanged: () => void
 }) {
   const [type, setType] = useState<"none" | "text" | "image" | "video">(fallback?.type ?? "none")
   const [text, setText] = useState(fallback?.text ?? "Tín hiệu đang gián đoạn — vui lòng chờ.")
   const [enabled, setEnabled] = useState(fallback?.enabled ?? true)
+  const [assetRef, setAssetRef] = useState<string | undefined>(fallback?.assetRef)
+  const [assetName, setAssetName] = useState<string | undefined>(fallback?.assetName)
+  const [assetMime, setAssetMime] = useState<string | undefined>(fallback?.assetMime)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   // Sync local state when fallback payload changes externally.
   useEffect(() => {
@@ -752,12 +762,45 @@ function FallbackCard({
       setType(fallback.type)
       if (fallback.text !== undefined) setText(fallback.text)
       setEnabled(fallback.enabled)
+      setAssetRef(fallback.assetRef)
+      setAssetName(fallback.assetName)
+      setAssetMime(fallback.assetMime)
     } else {
       setType("none")
     }
-  }, [fallback?.type, fallback?.text, fallback?.enabled])
+  }, [fallback?.type, fallback?.text, fallback?.enabled, fallback?.assetRef])
 
   const isAssetType = type === "image" || type === "video"
+  const previewUrl = assetRef ? `${basePath()}/api/public/asset/${encodeURIComponent(assetRef)}` : null
+
+  async function onPickFile(file: File) {
+    setUploadError(null)
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append("file", file)
+      const res = await fetch(uploadUrl, { method: "POST", body: form })
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      if (!res.ok) {
+        setUploadError(typeof json.error === "string" ? json.error : "Tải lên thất bại")
+        return
+      }
+      setAssetRef(json.id as string)
+      setAssetName(json.name as string)
+      setAssetMime(json.mime as string)
+      // Switch the type to match the uploaded media so Save sends the right kind.
+      if (json.kind === "image" || json.kind === "video") setType(json.kind)
+    } catch {
+      setUploadError("Lỗi mạng khi tải lên")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const canSave =
+    !busy &&
+    !uploading &&
+    (type === "none" || type === "text" || (isAssetType ? !!assetRef : false))
 
   return (
     <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
@@ -766,8 +809,8 @@ function FallbackCard({
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-[#5b616e]">
-          Khi nguồn chính mất tín hiệu, hệ thống sẽ phát nội dung dự phòng (slate). Cấu hình được lưu ngay; runtime
-          activation phải được verify với MediaMTX thật.
+          Khi nguồn chính mất tín hiệu, hệ thống tự phát nội dung dự phòng (slate) ra các luồng đang bật và dừng ngay khi
+          nguồn trở lại. Hỗ trợ slate text, ảnh hoặc video.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div>
@@ -779,12 +822,8 @@ function FallbackCard({
             >
               <option value="none">Tắt</option>
               <option value="text">Slate text</option>
-              <option value="image" disabled>
-                Ảnh (cần asset storage)
-              </option>
-              <option value="video" disabled>
-                Video (cần asset storage)
-              </option>
+              <option value="image">Ảnh</option>
+              <option value="video">Video</option>
             </select>
           </div>
           {type === "text" && (
@@ -805,13 +844,54 @@ function FallbackCard({
             </label>
           )}
         </div>
+
+        {isAssetType && (
+          <div className="space-y-2 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="file"
+                accept={type === "image" ? "image/*" : "video/*"}
+                disabled={uploading || busy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) onPickFile(f)
+                }}
+                className="text-xs"
+              />
+              {uploading && <span className="text-xs text-[#5b616e]">Đang tải lên…</span>}
+              {assetName && !uploading && (
+                <span className="text-xs text-[#05753f]">Đã có tệp: {assetName}</span>
+              )}
+            </div>
+            {uploadError && <div className="text-xs text-[#cf202f]">{uploadError}</div>}
+            {previewUrl && (
+              <div className="overflow-hidden rounded-xl border border-[#dee1e6] bg-black">
+                {(assetMime || "").startsWith("video/") || type === "video" ? (
+                  <video src={previewUrl} controls muted className="max-h-48 w-full object-contain" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={previewUrl} alt="preview" className="max-h-48 w-full object-contain" />
+                )}
+              </div>
+            )}
+            <p className="text-xs text-[#7c828a]">
+              Ảnh/video được phát lặp lại. Video nên có sẵn audio và đúng tỉ lệ 16:9 để tránh khung đen.
+            </p>
+          </div>
+        )}
+
         <div className="flex justify-end">
           <Button
             size="sm"
-            disabled={busy || isAssetType}
+            disabled={!canSave}
             onClick={async () => {
               const payload: Record<string, unknown> = { action: "set_fallback", type, enabled }
               if (type === "text") payload.text = text
+              if (isAssetType) {
+                payload.assetRef = assetRef
+                payload.assetName = assetName
+                payload.assetMime = assetMime
+              }
               const ok = await postAction(payload)
               if (ok) onChanged()
             }}
@@ -819,10 +899,15 @@ function FallbackCard({
             Lưu cấu hình
           </Button>
         </div>
+
         {fallback?.type === "text" && fallback.enabled && (
-          <div className="text-xs text-[#05753f]">
-            Hiện đang cấu hình slate text: “{fallback.text}”.
-          </div>
+          <div className="text-xs text-[#05753f]">Đang dùng slate text: “{fallback.text}”.</div>
+        )}
+        {fallback?.type === "image" && fallback.enabled && (
+          <div className="text-xs text-[#05753f]">Đang dùng slate ảnh: {fallback.assetName || fallback.assetRef}.</div>
+        )}
+        {fallback?.type === "video" && fallback.enabled && (
+          <div className="text-xs text-[#05753f]">Đang dùng slate video: {fallback.assetName || fallback.assetRef}.</div>
         )}
       </CardContent>
     </Card>

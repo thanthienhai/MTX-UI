@@ -32,6 +32,8 @@ import {
   regenerateMetaLoginCode,
   setMetaFallback,
   FALLBACK_TYPES,
+  buildRunOnNotReady,
+  fallbackAssetUrl,
 } from "../lib/relay-event.mjs"
 
 /* tokens & keys --------------------------------------------------------- */
@@ -250,5 +252,49 @@ assert.equal("fallback" in fbCleared, false, "none clears the field")
 // Long text gets clamped
 const fbLong = setMetaFallback(base, { type: "text", text: "x".repeat(500) })
 assert.ok(fbLong.fallback.text.length <= 200, "text clamped to 200 chars")
+// image/video carry display metadata
+const fbImg2 = setMetaFallback(base, {
+  type: "video",
+  assetRef: "abc123",
+  assetName: "loop.mp4",
+  assetMime: "video/mp4",
+})
+assert.equal(fbImg2.fallback.assetName, "loop.mp4", "asset name stored")
+assert.equal(fbImg2.fallback.assetMime, "video/mp4", "asset mime stored")
+
+/* fallback asset URL --------------------------------------------------- */
+assert.equal(
+  fallbackAssetUrl("http://fe:3000/", "abc123"),
+  "http://fe:3000/api/public/asset/abc123",
+  "asset url joined + trailing slash trimmed",
+)
+assert.equal(fallbackAssetUrl("", "abc123"), "", "no base => empty")
+assert.equal(fallbackAssetUrl("http://fe:3000", ""), "", "no ref => empty")
+
+/* runOnNotReady standby builder --------------------------------------- */
+// a1.meta has one enabled destination -> rtmps://a/rtmp/k1
+const metaText = setMetaFallback({ ...a1.meta, relayEnabled: true }, { type: "text", text: "Chờ chút" })
+const ronr = buildRunOnNotReady(metaText)
+assert.ok(ronr.startsWith("sh -c "), "wrapped in sh -c for MediaMTX exec")
+assert.ok(ronr.includes("ffprobe"), "monitors source via ffprobe")
+assert.ok(ronr.includes("drawtext"), "text slate uses drawtext")
+assert.ok(ronr.includes("rtmps://a/rtmp/k1"), "tees to the enabled destination")
+assert.ok(ronr.includes("rtsp://localhost:8554/"), "probes local rtsp source")
+
+// image/video need a resolvable asset base url
+const metaImg = setMetaFallback({ ...a1.meta, relayEnabled: true }, { type: "image", assetRef: "img1" })
+assert.equal(buildRunOnNotReady(metaImg), "", "image without asset base url => no standby")
+const ronrImg = buildRunOnNotReady(metaImg, { assetBaseUrl: "http://fe:3000" })
+assert.ok(ronrImg.includes("-loop 1"), "image looped")
+assert.ok(ronrImg.includes("http://fe:3000/api/public/asset/img1"), "reads asset over http")
+
+const metaVid = setMetaFallback({ ...a1.meta, relayEnabled: true }, { type: "video", assetRef: "vid1" })
+const ronrVid = buildRunOnNotReady(metaVid, { assetBaseUrl: "http://fe:3000" })
+assert.ok(ronrVid.includes("-stream_loop -1"), "video looped infinitely")
+
+// off / no-destinations / relay-stopped => cleared
+assert.equal(buildRunOnNotReady({ ...metaText, fallback: { type: "text", text: "x", enabled: false } }), "", "disabled => empty")
+assert.equal(buildRunOnNotReady({ ...base, fallback: { type: "text", text: "x", enabled: true } }), "", "no destinations => empty")
+assert.equal(buildRunOnNotReady({ ...metaText, relayEnabled: false }), "", "relay stopped => empty")
 
 console.log("test-relay-event.mjs: all assertions passed")

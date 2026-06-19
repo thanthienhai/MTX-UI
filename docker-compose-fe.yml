@@ -39,6 +39,14 @@ services:
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
+      # Fallback image/video uploads live here (persisted via the volume below).
+      RELAY_ASSET_DIR: /data/relay-assets
+    # NOTE: also set RELAY_ASSET_BASE_URL in .env — the public URL of THIS
+    # frontend that the MediaMTX backend can reach to fetch fallback assets,
+    # e.g. http://<this-host-ip>:3000. Without it image/video fallback stores
+    # config but cannot activate at runtime.
+    volumes:
+      - relay-assets:/data/relay-assets
     ports:
       - "3000:3000"
     healthcheck:
@@ -51,3 +59,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  relay-assets:
