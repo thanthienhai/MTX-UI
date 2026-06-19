@@ -1,9 +1,8 @@
 "use client"
 
 import { use, useCallback, useEffect, useState } from "react"
-import { RefreshCw } from "lucide-react"
+import { Activity, RefreshCw, Radio } from "lucide-react"
 import { StreamPlayer } from "@/components/stream-player"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -54,6 +53,19 @@ const PLATFORM_LABELS: Record<string, string> = {
   custom: "Tùy chỉnh",
 }
 
+function StatusPill({ online }: { online: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+        online ? "bg-[#05b169] text-white" : "bg-[#eef0f3] text-[#5b616e]"
+      }`}
+    >
+      <span className={`h-2 w-2 rounded-full ${online ? "bg-white" : "bg-[#9aa0a6]"}`} />
+      {online ? "Online" : "Offline"}
+    </span>
+  )
+}
+
 export default function PublicStatusPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const [data, setData] = useState<StatusPayload | null>(null)
@@ -91,10 +103,10 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] text-[#0a0b0d]">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-slate-200 mb-3" />
-          <p>Đang tải trạng thái…</p>
+          <div className="mb-3 inline-block h-8 w-8 animate-spin rounded-full border-b-2 border-[#0a0b0d]" />
+          <p className="text-sm text-[#5b616e]">Đang tải trạng thái…</p>
         </div>
       </div>
     )
@@ -102,12 +114,12 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
 
   if (notFound || !data) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center px-4">
-        <Card className="max-w-md w-full bg-slate-900 border-slate-800">
+      <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] px-4 text-[#0a0b0d]">
+        <Card className="w-full max-w-md rounded-3xl border-[#dee1e6] bg-white shadow-none">
           <CardHeader>
             <CardTitle>Không tìm thấy sự kiện</CardTitle>
           </CardHeader>
-          <CardContent className="text-slate-400">
+          <CardContent className="text-[#5b616e]">
             Liên kết trạng thái không hợp lệ hoặc đã bị thu hồi.
           </CardContent>
         </Card>
@@ -119,34 +131,52 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
   const online = runtime.online
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
-      <div className="max-w-5xl mx-auto px-5 py-8 space-y-5">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-bold">{data.displayName}</h1>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setRefreshing(true)
-              load()
-            }}
-            disabled={refreshing}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
-            Làm mới
-          </Button>
+    <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d]">
+      <div className="bg-[#0a0b0d] text-white">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0052ff]">
+              <Radio className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold">{data.displayName}</h1>
+              <p className="text-sm text-[#a8acb3]">Trạng thái sự kiện livestream</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2">
+              <Activity className={`h-4 w-4 ${online ? "text-[#05b169]" : "text-[#a8acb3]"}`} />
+              <span className="text-sm font-medium text-white">{online ? "Online" : "Offline"}</span>
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full bg-white text-[#0a0b0d] hover:bg-[#eef0f3]"
+              onClick={() => {
+                setRefreshing(true)
+                load()
+              }}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              Làm mới
+            </Button>
+          </div>
         </div>
+      </div>
 
-        <Card className="bg-slate-900 border-slate-800">
+      <div className="mx-auto max-w-5xl space-y-5 px-4 py-8 sm:px-6">
+        <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Preview livestream</CardTitle>
-            <Badge variant={online ? "default" : "secondary"}>{online ? "Online" : "Offline"}</Badge>
+            <StatusPill online={online} />
           </CardHeader>
           <CardContent>
             {online ? (
               <StreamPlayer hlsUrl={`${basePath()}/api/public/hls/${encodeURIComponent(token)}/index.m3u8`} />
             ) : (
               <div
-                className="w-full bg-black rounded-lg flex items-center justify-center text-slate-500"
+                className="flex w-full items-center justify-center rounded-2xl bg-[#0a0b0d] text-sm text-[#a8acb3]"
                 style={{ aspectRatio: "16/9" }}
               >
                 Nguồn đang offline. Preview sẽ sẵn sàng khi có tín hiệu.
@@ -155,14 +185,14 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900 border-slate-800">
+        <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
           <CardHeader>
             <CardTitle>Thông tin stream</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="divide-y divide-slate-800">
+            <div className="divide-y divide-[#eef0f3]">
               <Row label="Tín hiệu nguồn">
-                <span className={online ? "text-green-500 font-bold" : "text-orange-500 font-bold"}>
+                <span className={online ? "font-semibold text-[#05b169]" : "font-semibold text-[#cf202f]"}>
                   {online ? "Online" : "Offline"}
                 </span>
               </Row>
@@ -173,12 +203,12 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
                 <span>{runtime.tracks.length ? runtime.tracks.join(", ") : "Chưa có"}</span>
               </Row>
               <Row label="Người xem preview">
-                <span>{runtime.readers}</span>
+                <span className="font-mono">{runtime.readers}</span>
               </Row>
               <Row label="Dữ liệu truyền nhận">
                 <span className="text-sm">
                   Đã nhận <span className="font-mono">{formatBytes(runtime.bytesReceived)}</span>
-                  <span className="mx-2 text-slate-600">•</span>
+                  <span className="mx-2 text-[#c4c8cf]">•</span>
                   Đã gửi <span className="font-mono">{formatBytes(runtime.bytesSent)}</span>
                 </span>
               </Row>
@@ -186,38 +216,44 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900 border-slate-800">
+        <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
           <CardHeader>
             <CardTitle>Danh sách luồng stream</CardTitle>
           </CardHeader>
           <CardContent>
             {data.destinations.length === 0 ? (
-              <p className="text-slate-500">Chưa có luồng stream đang kích hoạt.</p>
+              <p className="text-sm text-[#7c828a]">Chưa có luồng stream đang kích hoạt.</p>
             ) : (
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="text-slate-400 text-sm">
-                    <th className="py-2">Tên</th>
-                    <th className="py-2">Nền tảng</th>
-                    <th className="py-2">Stream key</th>
-                    <th className="py-2">Trạng thái</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.destinations.map((d) => (
-                    <tr key={d.id} className="border-t border-slate-800">
-                      <td className="py-2">{d.name}</td>
-                      <td className="py-2">{PLATFORM_LABELS[d.platform] || d.platform}</td>
-                      <td className="py-2 font-mono">{d.maskedKey}</td>
-                      <td className="py-2">
-                        <Badge variant={d.enabled ? "default" : "secondary"}>
-                          {d.enabled ? "Bật" : "Tắt"}
-                        </Badge>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-[#7c828a]">
+                      <th className="py-2 font-medium">Tên</th>
+                      <th className="py-2 font-medium">Nền tảng</th>
+                      <th className="py-2 font-medium">Stream key</th>
+                      <th className="py-2 font-medium">Trạng thái</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {data.destinations.map((d) => (
+                      <tr key={d.id} className="border-t border-[#eef0f3]">
+                        <td className="py-2.5 text-[#0a0b0d]">{d.name}</td>
+                        <td className="py-2.5 text-[#5b616e]">{PLATFORM_LABELS[d.platform] || d.platform}</td>
+                        <td className="py-2.5 font-mono text-[#5b616e]">{d.maskedKey}</td>
+                        <td className="py-2.5">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              d.enabled ? "bg-[#0a0b0d] text-white" : "bg-[#eef0f3] text-[#5b616e]"
+                            }`}
+                          >
+                            {d.enabled ? "Bật" : "Tắt"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -229,8 +265,8 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 py-3">
-      <div className="text-slate-400">{label}</div>
-      <div className="text-right">{children}</div>
+      <div className="text-[#5b616e]">{label}</div>
+      <div className="text-right text-[#0a0b0d]">{children}</div>
     </div>
   )
 }

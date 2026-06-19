@@ -1,0 +1,53 @@
+# MTX-UI frontend only.
+#
+# Env: uses `.env` in this directory (gitignored). Compose auto-loads `.env` for
+# ${VAR} interpolation of build.args (NEXT_PUBLIC_* baked at BUILD time), and the
+# env_file below feeds the same file as RUNTIME server-only vars
+# (MEDIAMTX_API_URL, MEDIAMTX_ADMIN_USER/PASS, MEDIAMTX_HLS_URL, RELAY_SESSION_SECRET)
+# — these are what the /public/* relay routes need; missing them => "Upstream unavailable".
+#
+# Build (BuildKit on for cache mounts):
+#   DOCKER_BUILDKIT=1 docker compose -f docker-compose-fe.yml build
+# Run:
+#   docker compose -f docker-compose-fe.yml up -d
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_MEDIAMTX_API_URL: ${NEXT_PUBLIC_MEDIAMTX_API_URL:-/api/mediamtx}
+        NEXT_PUBLIC_MEDIAMTX_HLS_URL: ${NEXT_PUBLIC_MEDIAMTX_HLS_URL:-http://103.179.189.128:8888}
+        NEXT_PUBLIC_MEDIAMTX_PLAYBACK_URL: ${NEXT_PUBLIC_MEDIAMTX_PLAYBACK_URL:-}
+        NEXT_PUBLIC_MEDIAMTX_METRICS_URL: ${NEXT_PUBLIC_MEDIAMTX_METRICS_URL:-}
+        NEXT_PUBLIC_MEDIAMTX_PPROF_URL: ${NEXT_PUBLIC_MEDIAMTX_PPROF_URL:-}
+        NEXT_PUBLIC_MEDIAMTX_RTMP_HOST: ${NEXT_PUBLIC_MEDIAMTX_RTMP_HOST:-}
+        NEXT_PUBLIC_MEDIAMTX_RTMP_ADDRESS: ${NEXT_PUBLIC_MEDIAMTX_RTMP_ADDRESS:-}
+        NEXT_PUBLIC_MEDIAMTX_RTMPS_HOST: ${NEXT_PUBLIC_MEDIAMTX_RTMPS_HOST:-}
+        NEXT_PUBLIC_MEDIAMTX_RTMPS_ADDRESS: ${NEXT_PUBLIC_MEDIAMTX_RTMPS_ADDRESS:-}
+        NEXT_PUBLIC_MEDIAMTX_SRT_HOST: ${NEXT_PUBLIC_MEDIAMTX_SRT_HOST:-}
+        NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS: ${NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS:-}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
+    image: mtx-ui-fe:latest
+    container_name: mtx-ui-fe
+    restart: unless-stopped
+    # Runtime server-only vars (admin creds, MEDIAMTX_API_URL, RELAY_SESSION_SECRET, ...).
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

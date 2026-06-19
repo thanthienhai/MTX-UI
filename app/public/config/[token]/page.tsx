@@ -1,9 +1,8 @@
 "use client"
 
 import { use, useCallback, useEffect, useState } from "react"
-import { Copy, RefreshCw, LogOut, Plus, Pencil, Trash2, Check, X } from "lucide-react"
+import { Copy, RefreshCw, LogOut, Plus, Pencil, Trash2, Check, X, Radio } from "lucide-react"
 import { StreamPlayer } from "@/components/stream-player"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -91,6 +90,19 @@ const PLATFORM_LABELS: Record<string, string> = {
   custom: "Tùy chỉnh",
 }
 
+function StatusPill({ on, labelOn = "Online", labelOff = "Offline" }: { on: boolean; labelOn?: string; labelOff?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+        on ? "bg-[#05b169] text-white" : "bg-[#eef0f3] text-[#5b616e]"
+      }`}
+    >
+      <span className={`h-2 w-2 rounded-full ${on ? "bg-white" : "bg-[#9aa0a6]"}`} />
+      {on ? labelOn : labelOff}
+    </span>
+  )
+}
+
 export default function PublicConfigPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const apiBase = `${basePath()}/api/public/config/${encodeURIComponent(token)}`
@@ -163,10 +175,10 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] text-[#0a0b0d]">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-slate-200 mb-3" />
-          <p>Đang tải…</p>
+          <div className="mb-3 inline-block h-8 w-8 animate-spin rounded-full border-b-2 border-[#0a0b0d]" />
+          <p className="text-sm text-[#5b616e]">Đang tải…</p>
         </div>
       </div>
     )
@@ -188,39 +200,54 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
   const online = runtime.online
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
-      <div className="max-w-5xl mx-auto px-5 py-8 space-y-5">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold">Cấu hình sự kiện</h1>
-            <p className="text-slate-400">{data.displayName}</p>
+    <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d]">
+      <div className="bg-[#0a0b0d] text-white">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0052ff]">
+              <Radio className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold">Cấu hình sự kiện</h1>
+              <p className="text-sm text-[#a8acb3]">{data.displayName}</p>
+            </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => load()} disabled={busy}>
-              <RefreshCw className="h-4 w-4 mr-2" /> Làm mới
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full bg-[#16181c] text-white hover:bg-[#23262d]"
+              onClick={() => load()}
+              disabled={busy}
+            >
+              <RefreshCw className="h-4 w-4" /> Làm mới
             </Button>
             <Button
+              size="sm"
               variant="secondary"
+              className="rounded-full bg-white text-[#0a0b0d] hover:bg-[#eef0f3]"
               onClick={async () => {
                 await postAction({ action: "logout" })
                 setNeedLogin(true)
                 setData(null)
               }}
             >
-              <LogOut className="h-4 w-4 mr-2" /> Đăng xuất
+              <LogOut className="h-4 w-4" /> Đăng xuất
             </Button>
           </div>
         </div>
+      </div>
 
+      <div className="mx-auto max-w-5xl space-y-5 px-4 py-8 sm:px-6">
         {error && (
-          <div className="bg-red-950 text-red-200 rounded-lg px-4 py-3 text-sm">{error}</div>
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <Card className="bg-slate-900 border-slate-800">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Preview livestream</CardTitle>
-              <Badge variant={online ? "default" : "secondary"}>{online ? "Online" : "Offline"}</Badge>
+              <StatusPill on={online} />
             </CardHeader>
             <CardContent>
               {online ? (
@@ -229,7 +256,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
                 />
               ) : (
                 <div
-                  className="w-full bg-black rounded-lg flex items-center justify-center text-slate-500"
+                  className="flex w-full items-center justify-center rounded-2xl bg-[#0a0b0d] text-sm text-[#a8acb3]"
                   style={{ aspectRatio: "16/9" }}
                 >
                   Nguồn đang offline. Preview sẽ sẵn sàng khi có tín hiệu.
@@ -239,12 +266,12 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
           </Card>
 
           <div className="space-y-5">
-            <Card className="bg-slate-900 border-slate-800">
+            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Tín hiệu nguồn</CardTitle>
-                <Badge variant={online ? "default" : "secondary"}>{online ? "Online" : "Offline"}</Badge>
+                <StatusPill on={online} />
               </CardHeader>
-              <CardContent className="text-sm space-y-1">
+              <CardContent className="space-y-1 text-sm">
                 <Line label="Nguồn" value={runtime.sourceType || "Chưa có"} />
                 <Line label="Tracks" value={runtime.tracks.length ? runtime.tracks.join(", ") : "Chưa có"} />
                 <Line label="Người xem preview" value={String(runtime.readers)} />
@@ -255,12 +282,10 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-900 border-slate-800">
+            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Record</CardTitle>
-                <Badge variant={data.recordEnabled ? "default" : "secondary"}>
-                  {data.recordEnabled ? "Đang bật" : "Tắt"}
-                </Badge>
+                <StatusPill on={data.recordEnabled} labelOn="Đang bật" labelOff="Tắt" />
               </CardHeader>
               <CardContent>
                 <Button
@@ -273,16 +298,14 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-900 border-slate-800">
+            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Đẩy stream</CardTitle>
-                <Badge variant={data.relayEnabled ? "default" : "secondary"}>
-                  {data.relayEnabled ? "Đang đẩy" : "Tắt"}
-                </Badge>
+                <StatusPill on={data.relayEnabled} labelOn="Đang đẩy" labelOff="Tắt" />
               </CardHeader>
               <CardContent className="space-y-2">
-                <div className="text-sm text-slate-400">
-                  Đang bật <strong className="text-slate-200">{data.enabledCount}</strong> / {data.quota} luồng
+                <div className="text-sm text-[#5b616e]">
+                  Đang bật <strong className="text-[#0a0b0d]">{data.enabledCount}</strong> / {data.quota} luồng
                 </div>
                 <Button
                   onClick={() => postAction({ action: "set_relay", enabled: !data.relayEnabled }).then((ok) => ok && load())}
@@ -296,7 +319,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
           </div>
         </div>
 
-        <Card className="bg-slate-900 border-slate-800">
+        <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
           <CardHeader>
             <CardTitle>Thông số cấu hình</CardTitle>
           </CardHeader>
@@ -309,7 +332,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
               if (ok) load()
             }} />
             <CopyRow label="SRT Stream ID (nhận)" value={ingest.srtReadStreamId} />
-            <div className="text-xs text-slate-500 pt-1">
+            <div className="pt-1 text-xs text-[#7c828a]">
               Codec khuyến nghị: H.264 + AAC. Facebook không hỗ trợ HEVC.
             </div>
             <CopyRow
@@ -382,11 +405,11 @@ function DestinationsCard({
   const [editingId, setEditingId] = useState<string | null>(null)
   const quotaReached = data.enabledCount >= data.quota
   return (
-    <Card className="bg-slate-900 border-slate-800">
+    <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Danh sách luồng stream</CardTitle>
         <Button size="sm" onClick={() => setAdding((v) => !v)} disabled={busy}>
-          <Plus className="h-4 w-4 mr-1" /> {adding ? "Đóng" : "Thêm luồng"}
+          <Plus className="mr-1 h-4 w-4" /> {adding ? "Đóng" : "Thêm luồng"}
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -406,25 +429,25 @@ function DestinationsCard({
           />
         )}
         {data.destinations.length === 0 ? (
-          <p className="text-slate-500 text-sm">Chưa có luồng stream nào. Nhấn “Thêm luồng”.</p>
+          <p className="text-sm text-[#7c828a]">Chưa có luồng stream nào. Nhấn “Thêm luồng”.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm min-w-[640px]">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
-                <tr className="text-slate-400">
-                  <th className="py-2 pr-2">Tên</th>
-                  <th className="py-2 pr-2">Nền tảng</th>
-                  <th className="py-2 pr-2">Server</th>
-                  <th className="py-2 pr-2">Stream key</th>
-                  <th className="py-2 pr-2">Bật</th>
-                  <th className="py-2 pr-2 text-right">Hành động</th>
+                <tr className="text-[#7c828a]">
+                  <th className="py-2 pr-2 font-medium">Tên</th>
+                  <th className="py-2 pr-2 font-medium">Nền tảng</th>
+                  <th className="py-2 pr-2 font-medium">Server</th>
+                  <th className="py-2 pr-2 font-medium">Stream key</th>
+                  <th className="py-2 pr-2 font-medium">Bật</th>
+                  <th className="py-2 pr-2 text-right font-medium">Hành động</th>
                 </tr>
               </thead>
               <tbody>
                 {data.destinations.map((d) => {
                   if (editingId === d.id) {
                     return (
-                      <tr key={d.id} className="border-t border-slate-800">
+                      <tr key={d.id} className="border-t border-[#eef0f3]">
                         <td colSpan={6} className="py-3">
                           <DestinationForm
                             initial={{
@@ -459,12 +482,12 @@ function DestinationsCard({
                     )
                   }
                   return (
-                    <tr key={d.id} className="border-t border-slate-800">
-                      <td className="py-2 pr-2">{d.name}</td>
-                      <td className="py-2 pr-2">{PLATFORM_LABELS[d.platform] || d.platform}</td>
-                      <td className="py-2 pr-2 font-mono text-xs break-all max-w-[180px]">{d.serverUrl}</td>
-                      <td className="py-2 pr-2 font-mono">{d.maskedKey}</td>
-                      <td className="py-2 pr-2">
+                    <tr key={d.id} className="border-t border-[#eef0f3]">
+                      <td className="py-2.5 pr-2 text-[#0a0b0d]">{d.name}</td>
+                      <td className="py-2.5 pr-2 text-[#5b616e]">{PLATFORM_LABELS[d.platform] || d.platform}</td>
+                      <td className="max-w-[180px] break-all py-2.5 pr-2 font-mono text-xs text-[#5b616e]">{d.serverUrl}</td>
+                      <td className="py-2.5 pr-2 font-mono text-[#5b616e]">{d.maskedKey}</td>
+                      <td className="py-2.5 pr-2">
                         <Button
                           size="sm"
                           variant={d.enabled ? "destructive" : "secondary"}
@@ -482,7 +505,7 @@ function DestinationsCard({
                           {d.enabled ? "Tắt" : "Bật"}
                         </Button>
                       </td>
-                      <td className="py-2 pr-2 text-right space-x-1">
+                      <td className="space-x-1 py-2.5 pr-2 text-right">
                         <Button size="sm" variant="secondary" disabled={busy} onClick={() => setEditingId(d.id)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -506,7 +529,7 @@ function DestinationsCard({
             </table>
           </div>
         )}
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-[#7c828a]">
           Đang bật {data.enabledCount}/{data.quota}. Thêm luồng vẫn được nhưng phải tắt bớt nếu vượt quota khi bật.
         </div>
       </CardContent>
@@ -536,18 +559,18 @@ function DestinationForm({
   const [enabled, setEnabled] = useState(initial?.enabled ?? true)
   const canSubmit = name.trim() && serverUrl.trim() && (initial ? true : streamKey.trim())
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 space-y-2">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+    <div className="space-y-2 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-3">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         <div>
           <Label className="text-xs">Tên</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-slate-950 border-slate-800" />
+          <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-white" />
         </div>
         <div>
           <Label className="text-xs">Nền tảng</Label>
           <select
             value={platform}
             onChange={(e) => setPlatform(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm"
+            className="w-full rounded-md border border-[#dee1e6] bg-white px-3 py-2 text-sm"
           >
             <option value="facebook">Facebook</option>
             <option value="youtube">YouTube</option>
@@ -560,7 +583,7 @@ function DestinationForm({
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
             placeholder={PLATFORM_PLACEHOLDERS[platform]}
-            className="bg-slate-950 border-slate-800 font-mono text-xs"
+            className="bg-white font-mono text-xs"
           />
         </div>
         <div className="md:col-span-2">
@@ -569,19 +592,19 @@ function DestinationForm({
             value={streamKey}
             onChange={(e) => setStreamKey(e.target.value)}
             placeholder={keyPlaceholder || "Stream key từ nhà cung cấp"}
-            className="bg-slate-950 border-slate-800 font-mono text-xs"
+            className="bg-white font-mono text-xs"
             type="password"
           />
         </div>
       </div>
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm text-slate-300">
+        <label className="flex items-center gap-2 text-sm text-[#3c4148]">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Bật ngay
         </label>
         <div className="flex gap-2">
           <Button size="sm" variant="secondary" onClick={onCancel} disabled={busy}>
-            <X className="h-4 w-4 mr-1" /> Hủy
+            <X className="mr-1 h-4 w-4" /> Hủy
           </Button>
           <Button
             size="sm"
@@ -590,7 +613,7 @@ function DestinationForm({
               await onSubmit({ name, platform, serverUrl, streamKey, enabled })
             }}
           >
-            <Check className="h-4 w-4 mr-1" /> {submitLabel}
+            <Check className="mr-1 h-4 w-4" /> {submitLabel}
           </Button>
         </div>
       </div>
@@ -615,14 +638,14 @@ function SecurityCard({
 }) {
   const [revealedCode, setRevealedCode] = useState<string | null>(null)
   return (
-    <Card className="bg-slate-900 border-slate-800">
+    <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
       <CardHeader>
         <CardTitle>Bảo mật & chia sẻ</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <div className="text-slate-400">
-          Token chia sẻ hiện tại: cấu hình <code className="font-mono">{configToken.slice(0, 6)}…</code>, trạng thái{" "}
-          <code className="font-mono">{statusToken.slice(0, 6)}…</code>
+        <div className="text-[#5b616e]">
+          Token chia sẻ hiện tại: cấu hình <code className="font-mono text-[#0a0b0d]">{configToken.slice(0, 6)}…</code>, trạng thái{" "}
+          <code className="font-mono text-[#0a0b0d]">{statusToken.slice(0, 6)}…</code>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -682,10 +705,10 @@ function SecurityCard({
           </Button>
         </div>
         {revealedCode && (
-          <div className="rounded-lg border border-emerald-700 bg-emerald-950/40 p-3 space-y-2">
-            <div className="text-emerald-300 text-xs">Mã mới — chỉ hiển thị một lần. Sao chép ngay.</div>
+          <div className="space-y-2 rounded-2xl border border-[#05b169] bg-[#ecfdf3] p-3">
+            <div className="text-xs text-[#05753f]">Mã mới — chỉ hiển thị một lần. Sao chép ngay.</div>
             <div className="flex items-center gap-2">
-              <code className="flex-1 bg-slate-950 border border-emerald-700 rounded px-3 py-2 font-mono font-bold">
+              <code className="flex-1 rounded border border-[#05b169] bg-white px-3 py-2 font-mono font-bold text-[#0a0b0d]">
                 {revealedCode}
               </code>
               <Button
@@ -694,13 +717,13 @@ function SecurityCard({
                   navigator.clipboard?.writeText(revealedCode)
                 }}
               >
-                <Copy className="h-4 w-4 mr-1" /> Copy
+                <Copy className="mr-1 h-4 w-4" /> Copy
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setRevealedCode(null)}>
                 Đóng
               </Button>
             </div>
-            <div className="text-xs text-emerald-200">Phiên hiện tại đã bị thu hồi, bạn sẽ phải đăng nhập lại.</div>
+            <div className="text-xs text-[#05753f]">Phiên hiện tại đã bị thu hồi, bạn sẽ phải đăng nhập lại.</div>
           </div>
         )}
       </CardContent>
@@ -737,22 +760,22 @@ function FallbackCard({
   const isAssetType = type === "image" || type === "video"
 
   return (
-    <Card className="bg-slate-900 border-slate-800">
+    <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
       <CardHeader>
         <CardTitle>Nguồn dự phòng (fallback)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <p className="text-slate-400">
+        <p className="text-[#5b616e]">
           Khi nguồn chính mất tín hiệu, hệ thống sẽ phát nội dung dự phòng (slate). Cấu hình được lưu ngay; runtime
           activation phải được verify với MediaMTX thật.
         </p>
-        <div className="flex flex-wrap gap-3 items-end">
+        <div className="flex flex-wrap items-end gap-3">
           <div>
             <Label className="text-xs">Loại</Label>
             <select
               value={type}
               onChange={(e) => setType(e.target.value as never)}
-              className="bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm"
+              className="rounded-md border border-[#dee1e6] bg-white px-3 py-2 text-sm"
             >
               <option value="none">Tắt</option>
               <option value="text">Slate text</option>
@@ -765,18 +788,18 @@ function FallbackCard({
             </select>
           </div>
           {type === "text" && (
-            <div className="flex-1 min-w-[240px]">
+            <div className="min-w-[240px] flex-1">
               <Label className="text-xs">Nội dung (≤ 200 ký tự)</Label>
               <Input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 maxLength={200}
-                className="bg-slate-950 border-slate-800"
+                className="bg-white"
               />
             </div>
           )}
           {type !== "none" && (
-            <label className="flex items-center gap-2 text-slate-300">
+            <label className="flex items-center gap-2 text-[#3c4148]">
               <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
               Bật
             </label>
@@ -797,7 +820,7 @@ function FallbackCard({
           </Button>
         </div>
         {fallback?.type === "text" && fallback.enabled && (
-          <div className="text-xs text-emerald-300">
+          <div className="text-xs text-[#05753f]">
             Hiện đang cấu hình slate text: “{fallback.text}”.
           </div>
         )}
@@ -808,29 +831,29 @@ function FallbackCard({
 
 function AuditCard({ entries }: { entries: AuditEntry[] }) {
   return (
-    <Card className="bg-slate-900 border-slate-800">
+    <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
       <CardHeader>
         <CardTitle>Lịch sử hành động (20 gần nhất)</CardTitle>
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-[#7c828a]">
             Chưa có hành động nào được ghi nhận trong phiên hiện tại của máy chủ.
           </p>
         ) : (
-          <ul className="space-y-1 text-xs font-mono max-h-64 overflow-y-auto">
+          <ul className="max-h-64 space-y-1 overflow-y-auto font-mono text-xs">
             {entries.map((e, idx) => (
-              <li key={idx} className="flex gap-3 border-b border-slate-800 pb-1">
-                <span className="text-slate-500 shrink-0">{formatTs(e.ts)}</span>
-                <span className="text-emerald-300 shrink-0 w-36">{e.action}</span>
-                <span className="text-slate-400 break-all">
+              <li key={idx} className="flex gap-3 border-b border-[#eef0f3] pb-1">
+                <span className="shrink-0 text-[#9aa0a6]">{formatTs(e.ts)}</span>
+                <span className="w-36 shrink-0 text-[#0052ff]">{e.action}</span>
+                <span className="break-all text-[#5b616e]">
                   {e.detail ? JSON.stringify(e.detail) : ""}
                 </span>
               </li>
             ))}
           </ul>
         )}
-        <p className="text-xs text-slate-500 mt-2">
+        <p className="mt-2 text-xs text-[#7c828a]">
           Lưu trữ in-memory tại tiến trình máy chủ — sẽ reset khi máy chủ khởi động lại.
         </p>
       </CardContent>
@@ -850,8 +873,8 @@ function formatTs(ts: string): string {
 function Line({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4">
-      <span className="text-slate-400">{label}</span>
-      <span className="text-right">{value}</span>
+      <span className="text-[#5b616e]">{label}</span>
+      <span className="text-right text-[#0a0b0d]">{value}</span>
     </div>
   )
 }
@@ -870,9 +893,9 @@ function CopyRow({
   const [copied, setCopied] = useState(false)
   return (
     <div className="space-y-1">
-      <div className="text-sm text-slate-400">{label}</div>
+      <div className="text-sm text-[#5b616e]">{label}</div>
       <div className="flex items-center gap-2">
-        <code className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm font-mono break-all">
+        <code className="flex-1 break-all rounded border border-[#dee1e6] bg-[#f7f7f7] px-3 py-2 font-mono text-sm text-[#0a0b0d]">
           {value}
         </code>
         <Button
@@ -884,7 +907,7 @@ function CopyRow({
             setTimeout(() => setCopied(false), 1500)
           }}
         >
-          <Copy className="h-4 w-4 mr-1" />
+          <Copy className="mr-1 h-4 w-4" />
           {copied ? "✓" : "Copy"}
         </Button>
         {rotatable && (
@@ -900,15 +923,15 @@ function CopyRow({
 function ChangeCodeCard({ onSubmit, busy }: { onSubmit: (code: string) => Promise<boolean>; busy: boolean }) {
   const [code, setCode] = useState("")
   return (
-    <Card className="bg-slate-900 border-slate-800">
+    <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
       <CardHeader>
         <CardTitle>Đổi mã đăng nhập</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-[#5b616e]">
           Mã mới sẽ dùng cho lần đăng nhập tiếp theo. Sau khi đổi, bạn phải đăng nhập lại.
         </p>
-        <div className="flex gap-2 items-end">
+        <div className="flex items-end gap-2">
           <div className="flex-1">
             <Label htmlFor="newcode">Mã đăng nhập mới (tối thiểu 6 ký tự)</Label>
             <Input
@@ -916,7 +939,7 @@ function ChangeCodeCard({ onSubmit, busy }: { onSubmit: (code: string) => Promis
               type="password"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              className="bg-slate-950 border-slate-800"
+              className="bg-white"
             />
           </div>
           <Button
@@ -937,12 +960,12 @@ function ChangeCodeCard({ onSubmit, busy }: { onSubmit: (code: string) => Promis
 
 function CenterCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center px-4">
-      <Card className="max-w-md w-full bg-slate-900 border-slate-800">
+    <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] px-4 text-[#0a0b0d]">
+      <Card className="w-full max-w-md rounded-3xl border-[#dee1e6] bg-white shadow-none">
         <CardHeader>
           <CardTitle>{title}</CardTitle>
         </CardHeader>
-        <CardContent className="text-slate-400">{children}</CardContent>
+        <CardContent className="text-[#5b616e]">{children}</CardContent>
       </Card>
     </div>
   )
@@ -976,14 +999,17 @@ function LoginGate({ apiBase, onSuccess }: { apiBase: string; onSuccess: () => v
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center px-4">
-      <Card className="max-w-md w-full bg-slate-900 border-slate-800">
-        <CardHeader>
+    <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] px-4 text-[#0a0b0d]">
+      <Card className="w-full max-w-md rounded-3xl border-[#dee1e6] bg-white shadow-none">
+        <CardHeader className="items-center text-center">
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-[#0052ff]">
+            <Radio className="h-6 w-6 text-white" />
+          </div>
           <CardTitle>Cấu hình sự kiện</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-slate-400 text-sm">Nhập mã đăng nhập để truy cập trang cấu hình.</p>
-          {error && <div className="bg-red-950 text-red-200 rounded-lg px-4 py-2 text-sm">{error}</div>}
+          <p className="text-sm text-[#5b616e]">Nhập mã đăng nhập để truy cập trang cấu hình.</p>
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>}
           <div>
             <Label htmlFor="logincode">Mã đăng nhập</Label>
             <Input
@@ -992,7 +1018,7 @@ function LoginGate({ apiBase, onSuccess }: { apiBase: string; onSuccess: () => v
               value={code}
               onChange={(e) => setCode(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()}
-              className="bg-slate-950 border-slate-800"
+              className="bg-white"
               autoFocus
             />
           </div>

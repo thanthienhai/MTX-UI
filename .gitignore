@@ -1,6 +1,8 @@
 .idea
 venv
 .env
+.env.local
+.env.*.local
 mediamtx3.yml
 mediamtx_updater.log
 mediamtx_updater3.py

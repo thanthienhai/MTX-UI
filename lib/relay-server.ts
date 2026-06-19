@@ -94,8 +94,21 @@ async function mtxFetch<T>(endpoint: string, init?: RequestInit, authOverride?: 
   if (auth) headers.set("authorization", auth)
   if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json")
 
-  const res = await fetch(url, { ...init, headers, cache: "no-store" })
+  let res: Response
+  try {
+    res = await fetch(url, { ...init, headers, cache: "no-store" })
+  } catch (cause) {
+    // Surface the real cause in the server log — the route handlers collapse
+    // every failure into a generic 502, which hides env/network misconfig.
+    // `url` reveals whether MEDIAMTX_API_URL fell back to a relative path.
+    console.error(
+      `[relay-server] mtxFetch ${endpoint} network error (url=${url}, auth=${auth ? "yes" : "MISSING"}):`,
+      cause instanceof Error ? cause.message : cause,
+    )
+    throw cause
+  }
   if (!res.ok) {
+    console.error(`[relay-server] mtxFetch ${endpoint} -> ${res.status} (url=${url}, auth=${auth ? "yes" : "MISSING"})`)
     throw new Error(`MediaMTX ${endpoint} -> ${res.status}`)
   }
   if (res.status === 204) return undefined as T

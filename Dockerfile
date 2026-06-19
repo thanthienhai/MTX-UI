@@ -1,74 +1,19 @@
-## Base stage with pnpm installed
-#FROM node:20-alpine AS base
-#ENV PNPM_HOME="/pnpm"
-#ENV PATH="$PNPM_HOME:$PATH"
+# MTX-UI frontend — Next.js 15 standalone build (pnpm, multi-stage).
+# Build with BuildKit:
+#   DOCKER_BUILDKIT=1 docker compose -f docker-compose-fe.yml build
 #
-## Install pnpm explicitly, skip corepack network calls
-#RUN npm install -g pnpm@9
-#
-## Stage 1: Dependencies
-#FROM base AS deps
-#WORKDIR /app
-#
-## Copy package files
-#COPY package.json pnpm-lock.yaml* ./
-#
-## Install dependencies with cache
-#RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-#    pnpm install --frozen-lockfile --prod=false
-#
-## Stage 2: Builder
-#FROM base AS builder
-#WORKDIR /app
-#
-#COPY --from=deps /app/node_modules ./node_modules
-#COPY . .
-#
-#ENV NEXT_TELEMETRY_DISABLED=1
-#ENV NODE_ENV=production
-#
-#RUN pnpm run build
-#
-## Stage 3: Runner
-#FROM node:20-alpine AS runner
-#WORKDIR /app
-#
-#ENV NODE_ENV=production
-#ENV NEXT_TELEMETRY_DISABLED=1
-#
-## Non-root user
-#RUN addgroup --system --gid 1001 nodejs && \
-#    adduser --system --uid 1001 nextjs
-#
-#COPY --from=builder /app/public ./public
-#RUN mkdir -p .next && chown nextjs:nodejs .next
-#
-#COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-#COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-#
-#USER nextjs
-#EXPOSE 3000
-#
-#ENV PORT=3000
-#ENV HOSTNAME="0.0.0.0"
-#
-#CMD ["node", "server.js"]
+# NOTE: NEXT_PUBLIC_* values are inlined at BUILD time (pass via build args).
+# Server-only vars (MEDIAMTX_API_URL, MEDIAMTX_ADMIN_USER/PASS, MEDIAMTX_HLS_URL,
+# RELAY_SESSION_SECRET) are read at RUNTIME — supply them via env_file/-e, not here.
 
-
-
-# Use BuildKit features (cache mounts) to speed up installs and Next builds.
-# Build with BuildKit enabled:
-#   DOCKER_BUILDKIT=1 docker build -t my-next-app .
-# or with Buildx in CI (recommended) to persist cache across runs.
-
-# Base image with pnpm installed (install version configurable at build time)
+# -----------------------
+# Stage: base (pnpm)
+# -----------------------
 FROM node:20-alpine AS base
 ARG PNPM_VERSION=9
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 ENV PNPM_STORE_PATH="/pnpm/store"
-
-# Install pnpm explicitly and keep the image small
 RUN npm install -g pnpm@"${PNPM_VERSION}" --no-audit --no-fund
 
 # -----------------------
@@ -76,12 +21,7 @@ RUN npm install -g pnpm@"${PNPM_VERSION}" --no-audit --no-fund
 # -----------------------
 FROM base AS deps
 WORKDIR /app
-
-# Copy only manifest files to leverage Docker layer cache for dependencies
 COPY package.json pnpm-lock.yaml* ./
-
-# Use BuildKit cache mounts for the pnpm store so repeated builds are much faster.
-# pnpm's store dir is set to /pnpm/store (PNPM_STORE_PATH).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store --reporter=silent
 
@@ -90,58 +30,62 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 # -----------------------
 FROM base AS builder
 WORKDIR /app
-
-# Copy cached deps and then copy source
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build args and envs (can be overridden at build time)
-ARG BUILD_NODE_ENV=production
-ARG NEXT_PUBLIC_MEDIAMTX_API_URL="/api/mediamtx"
-ENV NEXT_PUBLIC_MEDIAMTX_API_URL=${NEXT_PUBLIC_MEDIAMTX_API_URL}
-ARG NEXT_PUBLIC_MEDIAMTX_HLS_URL="http://localhost:80/hls"
-ENV NEXT_PUBLIC_MEDIAMTX_HLS_URL=${NEXT_PUBLIC_MEDIAMTX_HLS_URL}
-ENV NODE_ENV=${BUILD_NODE_ENV}
-ARG NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_TELEMETRY_DISABLED=${NEXT_TELEMETRY_DISABLED}
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Use BuildKit cache mount for Next.js cache to accelerate incremental builds
+# Build-time public vars (inlined into the client bundle).
+ARG NEXT_PUBLIC_MEDIAMTX_API_URL="/api/mediamtx"
+ARG NEXT_PUBLIC_MEDIAMTX_HLS_URL=""
+ARG NEXT_PUBLIC_MEDIAMTX_PLAYBACK_URL=""
+ARG NEXT_PUBLIC_MEDIAMTX_METRICS_URL=""
+ARG NEXT_PUBLIC_MEDIAMTX_PPROF_URL=""
+ARG NEXT_PUBLIC_MEDIAMTX_RTMP_HOST=""
+ARG NEXT_PUBLIC_MEDIAMTX_RTMP_ADDRESS=""
+ARG NEXT_PUBLIC_MEDIAMTX_RTMPS_HOST=""
+ARG NEXT_PUBLIC_MEDIAMTX_RTMPS_ADDRESS=""
+ARG NEXT_PUBLIC_MEDIAMTX_SRT_HOST=""
+ARG NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS=""
+ARG NEXT_PUBLIC_BASE_PATH=""
+ENV NEXT_PUBLIC_MEDIAMTX_API_URL=${NEXT_PUBLIC_MEDIAMTX_API_URL}
+ENV NEXT_PUBLIC_MEDIAMTX_HLS_URL=${NEXT_PUBLIC_MEDIAMTX_HLS_URL}
+ENV NEXT_PUBLIC_MEDIAMTX_PLAYBACK_URL=${NEXT_PUBLIC_MEDIAMTX_PLAYBACK_URL}
+ENV NEXT_PUBLIC_MEDIAMTX_METRICS_URL=${NEXT_PUBLIC_MEDIAMTX_METRICS_URL}
+ENV NEXT_PUBLIC_MEDIAMTX_PPROF_URL=${NEXT_PUBLIC_MEDIAMTX_PPROF_URL}
+ENV NEXT_PUBLIC_MEDIAMTX_RTMP_HOST=${NEXT_PUBLIC_MEDIAMTX_RTMP_HOST}
+ENV NEXT_PUBLIC_MEDIAMTX_RTMP_ADDRESS=${NEXT_PUBLIC_MEDIAMTX_RTMP_ADDRESS}
+ENV NEXT_PUBLIC_MEDIAMTX_RTMPS_HOST=${NEXT_PUBLIC_MEDIAMTX_RTMPS_HOST}
+ENV NEXT_PUBLIC_MEDIAMTX_RTMPS_ADDRESS=${NEXT_PUBLIC_MEDIAMTX_RTMPS_ADDRESS}
+ENV NEXT_PUBLIC_MEDIAMTX_SRT_HOST=${NEXT_PUBLIC_MEDIAMTX_SRT_HOST}
+ENV NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS=${NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS}
+ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
+
 RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
     pnpm run build
 
 # -----------------------
-# Stage: runtime (minimal)
+# Stage: runner (minimal)
 # -----------------------
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Default runtime envs (these can be overridden at container runtime with -e or --env-file)
-ENV NEXT_PUBLIC_MEDIAMTX_API_URL="/api/mediamtx"
-ENV MEDIAMTX_API_URL="http://publisher:9997"
-ENV NEXT_PUBLIC_MEDIAMTX_HLS_URL="http://localhost:80/hls"
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
-ENV HOST=0.0.0.0
+# Next standalone server reads HOSTNAME (not HOST) to choose the bind address.
+ENV HOSTNAME=0.0.0.0
 
-# Create non-root user and group
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy only runtime artifacts produced by Next.js standalone build
 COPY --from=builder /app/public ./public
 RUN mkdir -p .next && chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Expose port (informational)
+USER nextjs
 EXPOSE 3000
 
-# Use non-root user
-USER nextjs
-
-# Make it easy to pass runtime envs:
-# - docker run -p 3000:3000 -e NODE_ENV=staging -e CUSTOM_VAR=foo my-next-app
-# - docker run --env-file ./env.prod -p 3000:3000 my-next-app
 CMD ["node", "server.js"]
-#CMD ["pnpm", "run", "start"]
