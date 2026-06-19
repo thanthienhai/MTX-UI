@@ -102,7 +102,7 @@ assert.equal(addCall.authorization, ADMIN_BASIC, "uses env admin Basic auth by d
 const addBody = addCall.body as Record<string, unknown>
 assert.equal(addBody.source, "publisher", "publisher source")
 assert.equal(addBody.record, false, "record starts off")
-assert.equal(addBody.runOnReadyRestart, true, "runOnReady should restart on crash")
+assert.equal(addBody.runOnReadyRestart, false, "no destinations yet → no-op must NOT restart (avoids 5s churn loop)")
 const meta = parseRunOnReady(addBody.runOnReady as string)
 assert.ok(meta, "runOnReady carries RELAY_META")
 assert.equal(meta.displayName, "Test Event")

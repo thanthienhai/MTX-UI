@@ -120,7 +120,7 @@ assert.notEqual(
 const upstreamBody = call.body as Record<string, unknown>
 assert.equal(upstreamBody.source, "publisher")
 assert.equal(upstreamBody.record, false)
-assert.equal(upstreamBody.runOnReadyRestart, true)
+assert.equal(upstreamBody.runOnReadyRestart, false, "no destinations → no-op must not restart")
 const meta = parseRunOnReady(upstreamBody.runOnReady as string)
 assert.ok(meta)
 assert.equal(meta.displayName, "Concert 2026-06-13")

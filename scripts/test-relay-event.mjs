@@ -12,6 +12,7 @@ import {
   buildIngestUrls,
   destinationUrl,
   buildRunOnReady,
+  relayHasActiveCommand,
   encodeMeta,
   decodeMeta,
   parseRunOnReady,
@@ -94,6 +95,7 @@ const emptyRor = buildRunOnReady(meta)
 assert.ok(emptyRor.startsWith("sh -c "), "runOnReady wrapped in sh -c for real-shell semantics")
 assert.ok(emptyRor.includes(": " + META_PREFIX), "empty fan-out degrades to no-op comment")
 assert.deepEqual(parseRunOnReady(emptyRor), meta, "meta survives in no-op runOnReady")
+assert.equal(relayHasActiveCommand(meta), false, "no destinations -> no-op, must not auto-restart")
 
 /* runOnReady with enabled destinations -> ffmpeg tee ------------------- */
 meta.destinations.push(
@@ -109,6 +111,7 @@ assert.ok(ror.includes("rtmps://a/rtmp/k1"), "includes enabled dest 1")
 assert.ok(ror.includes("rtmp://c/app/k3"), "includes enabled dest 3")
 assert.ok(!ror.includes("rtmp://b/live/k2"), "excludes disabled dest 2")
 assert.deepEqual(parseRunOnReady(ror), meta, "meta survives alongside ffmpeg command")
+assert.equal(relayHasActiveCommand(meta), true, "enabled destinations -> live ffmpeg, should auto-restart")
 
 /* public projection strips secrets ------------------------------------- */
 const pub = toPublicStatus(meta)
@@ -137,6 +140,7 @@ assert.equal(verifySessionToken(createSessionToken(cfgToken, secret, -1000), cfg
 const relayOff = setMetaRelayEnabled(meta, false)
 const offRor = buildRunOnReady(relayOff)
 assert.ok(!offRor.includes("ffmpeg "), "relay off -> no ffmpeg even with enabled dests")
+assert.equal(relayHasActiveCommand(relayOff), false, "relay off -> no-op, must not auto-restart")
 assert.deepEqual(parseRunOnReady(offRor), relayOff, "meta survives when relay off")
 const relayOn = setMetaRelayEnabled(meta, true)
 assert.ok(buildRunOnReady(relayOn).includes("ffmpeg "), "relay on -> ffmpeg")

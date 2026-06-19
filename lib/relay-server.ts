@@ -19,6 +19,7 @@ import {
   verifyLoginCode,
   buildIngestUrls,
   buildRunOnReady,
+  relayHasActiveCommand,
   createEventMeta,
   createSessionToken,
   verifySessionToken,
@@ -438,7 +439,7 @@ export async function createEvent(
         name: pathKey,
         source: "publisher",
         runOnReady,
-        runOnReadyRestart: true,
+        runOnReadyRestart: relayHasActiveCommand(meta),
         record: false,
       }),
     },
@@ -464,6 +465,7 @@ export async function setEventRelay(event: ResolvedEvent, enabled: boolean, auth
       method: "PATCH",
       body: JSON.stringify({
         runOnReady: buildRunOnReady(meta),
+        runOnReadyRestart: relayHasActiveCommand(meta),
         runOnNotReady: buildRunOnNotReady(meta, { assetBaseUrl: assetBaseUrl() }),
       }),
     },
@@ -476,7 +478,13 @@ export async function changeEventLoginCode(event: ResolvedEvent, newCode: string
   const meta = setMetaLoginCode(event.meta, newCode)
   await mtxFetch(
     `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
-    { method: "PATCH", body: JSON.stringify({ runOnReady: buildRunOnReady(meta) }) },
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        runOnReady: buildRunOnReady(meta),
+        runOnReadyRestart: relayHasActiveCommand(meta),
+      }),
+    },
     authOverride,
   )
   audit("login_code.change", event)
@@ -493,6 +501,7 @@ async function applyMetaPatch(event: ResolvedEvent, newMeta: EventMeta, authOver
       method: "PATCH",
       body: JSON.stringify({
         runOnReady: buildRunOnReady(newMeta),
+        runOnReadyRestart: relayHasActiveCommand(newMeta),
         runOnNotReady: buildRunOnNotReady(newMeta, { assetBaseUrl: assetBaseUrl() }),
       }),
     },
@@ -680,7 +689,7 @@ export async function rotateEventStreamId(event: ResolvedEvent, authOverride?: s
   const { meta: newMeta, oldSlug, newSlug } = rotateMetaSlug(event.meta)
   const oldConf = (await getPathConfRaw(oldSlug)) ?? {}
   const runOnReady = buildRunOnReady(newMeta)
-  const body = { ...oldConf, name: newSlug, runOnReady }
+  const body = { ...oldConf, name: newSlug, runOnReady, runOnReadyRestart: relayHasActiveCommand(newMeta) }
   await mtxFetch(
     `/v3/config/paths/add/${encodeURIComponent(newSlug)}`,
     { method: "POST", body: JSON.stringify(body) },
