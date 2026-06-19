@@ -2,6 +2,19 @@ import { findEventByToken, verifyEventLoginCode, issueConfigSession, CONFIG_SESS
 
 const SESSION_TTL_SECONDS = 2 * 60 * 60
 
+// Only mark the session cookie `Secure` when the request actually arrived over
+// HTTPS — keying it off NODE_ENV alone breaks plain-HTTP deployments, where the
+// browser silently drops a Secure cookie and the login can never stick (401 loop).
+function isHttpsRequest(request: Request): boolean {
+  const forwarded = request.headers.get("x-forwarded-proto")
+  if (forwarded) return forwarded.split(",")[0].trim().toLowerCase() === "https"
+  try {
+    return new URL(request.url).protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
 /**
  * Exchange a login code for a signed, httpOnly session cookie scoped to this
  * event's config API path. The code is verified server-side against the
@@ -37,7 +50,7 @@ export async function POST(request: Request, context: { params: Promise<{ token?
   }
 
   const session = issueConfigSession(event.meta.configToken)
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : ""
+  const secure = isHttpsRequest(request) ? "; Secure" : ""
   const cookie =
     `${CONFIG_SESSION_COOKIE}=${session}; HttpOnly; SameSite=Lax` +
     `; Path=/api/public/config/${encodeURIComponent(token)}; Max-Age=${SESSION_TTL_SECONDS}${secure}`
