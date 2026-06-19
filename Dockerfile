@@ -1,4 +1,4 @@
-# MTX-UI frontend — Next.js 15 standalone build (pnpm, multi-stage).
+# MTX-UI frontend — Next.js 15 standalone build (npm, multi-stage).
 # Build with BuildKit:
 #   DOCKER_BUILDKIT=1 docker compose -f docker-compose-fe.yml build
 #
@@ -6,24 +6,22 @@
 # Server-only vars (MEDIAMTX_API_URL, MEDIAMTX_ADMIN_USER/PASS, MEDIAMTX_HLS_URL,
 # RELAY_SESSION_SECRET) are read at RUNTIME — supply them via env_file/-e, not here.
 
+# Uses npm (package-lock.json is the authoritative, in-sync lockfile;
+# pnpm-lock.yaml in the repo is stale and missing deps).
+
 # -----------------------
-# Stage: base (pnpm)
+# Stage: base
 # -----------------------
 FROM node:20-alpine AS base
-ARG PNPM_VERSION=9
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-ENV PNPM_STORE_PATH="/pnpm/store"
-RUN npm install -g pnpm@"${PNPM_VERSION}" --no-audit --no-fund
 
 # -----------------------
 # Stage: dependencies
 # -----------------------
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml* ./
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --store-dir=/pnpm/store --reporter=silent
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
 
 # -----------------------
 # Stage: builder
@@ -63,7 +61,7 @@ ENV NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS=${NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS}
 ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 
 RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
-    pnpm run build
+    npm run build
 
 # -----------------------
 # Stage: runner (minimal)
