@@ -1,7 +1,8 @@
 "use client"
 
 import { use, useCallback, useEffect, useState } from "react"
-import { Copy, RefreshCw, LogOut, Plus, Pencil, Trash2, Check, X, Radio } from "lucide-react"
+import { Copy, RefreshCw, LogOut, Plus, Pencil, Trash2, Check, X } from "lucide-react"
+import { LOGO_SRC } from "@/lib/branding"
 import { StreamPlayer } from "@/components/stream-player"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -206,9 +207,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
       <div className="bg-[#0a0b0d] text-white">
         <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0052ff]">
-              <Radio className="h-6 w-6 text-white" />
-            </div>
+            <img src={LOGO_SRC} alt="SIPVY" className="h-11 w-auto" />
             <div>
               <h1 className="text-xl font-semibold">Cấu hình sự kiện</h1>
               <p className="text-sm text-[#a8acb3]">{data.displayName}</p>
@@ -1087,9 +1086,7 @@ function LoginGate({ apiBase, onSuccess }: { apiBase: string; onSuccess: () => v
     <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] px-4 text-[#0a0b0d]">
       <Card className="w-full max-w-md rounded-3xl border-[#dee1e6] bg-white shadow-none">
         <CardHeader className="items-center text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-[#0052ff]">
-            <Radio className="h-6 w-6 text-white" />
-          </div>
+          <img src={LOGO_SRC} alt="SIPVY" className="mx-auto mb-2 h-12 w-auto" />
           <CardTitle>Cấu hình sự kiện</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">

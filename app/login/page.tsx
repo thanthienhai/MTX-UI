@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Radio, AlertCircle } from "lucide-react"
+import { AlertCircle } from "lucide-react"
+import { LOGO_SRC } from "@/lib/branding"
 import {
   DashboardLoginError,
   setDashboardSession,
@@ -54,9 +55,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 flex flex-col items-center">
-          <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg mb-4">
-            <Radio className="w-6 h-6 text-white" />
-          </div>
+          <img src={LOGO_SRC} alt="SIPVY" className="h-12 w-auto mb-4" />
           <CardTitle className="text-2xl font-bold text-center">Bảng điều khiển MediaMTX</CardTitle>
           <CardDescription className="text-center">Đăng nhập để quản trị máy chủ streaming</CardDescription>
         </CardHeader>

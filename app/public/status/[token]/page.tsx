@@ -1,8 +1,9 @@
 "use client"
 
 import { use, useCallback, useEffect, useState } from "react"
-import { Activity, RefreshCw, Radio } from "lucide-react"
+import { Activity, RefreshCw } from "lucide-react"
 import { StreamPlayer } from "@/components/stream-player"
+import { LOGO_SRC } from "@/lib/branding"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -135,9 +136,7 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
       <div className="bg-[#0a0b0d] text-white">
         <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0052ff]">
-              <Radio className="h-6 w-6 text-white" />
-            </div>
+            <img src={LOGO_SRC} alt="SIPVY" className="h-11 w-auto" />
             <div>
               <h1 className="text-xl font-semibold">{data.displayName}</h1>
               <p className="text-sm text-[#a8acb3]">Trạng thái sự kiện livestream</p>

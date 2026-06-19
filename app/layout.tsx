@@ -6,8 +6,8 @@ import { NotificationProvider } from '@/components/notification-provider'
 
 export const metadata: Metadata = {
   title: 'MediaMTX Dashboard',
-  description: 'Created by SIPVY Thân Thiện',
-  generator: 'thanthienhai.github.io',
+  description: 'Được phát triển bởi SIPVY',
+  generator: 'SIPVY',
 }
 
 export default function RootLayout({

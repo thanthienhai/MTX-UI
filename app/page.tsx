@@ -47,6 +47,7 @@ import {
   FileText,
 } from "lucide-react"
 import { ProtectedRoute } from "@/components/protected-route"
+import { LOGO_SRC } from "@/lib/branding"
 import { clearAuth, getDashboardSession, getSessionPermissions, getUsername } from "@/lib/auth"
 import { StreamPlayer } from "@/components/stream-player"
 import { WHEPPlayer } from "@/components/whep-player"
@@ -854,9 +855,7 @@ function MediaMTXDashboard() {
         <div className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0052ff]">
-                <Radio className="h-6 w-6 text-white" />
-              </div>
+              <img src={LOGO_SRC} alt="SIPVY" className="h-11 w-auto" />
               <div>
                 <h1 className="text-xl font-semibold tracking-normal">MediaMTX Dashboard</h1>
                 <p className="text-sm text-[#a8acb3]">Media streaming server management</p>
