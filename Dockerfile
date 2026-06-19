@@ -1,6 +1,6 @@
 # MTX-UI frontend — Next.js 15 standalone build (npm, multi-stage).
-# Build with BuildKit:
-#   DOCKER_BUILDKIT=1 docker compose -f docker-compose-fe.yml build
+# Builds with the legacy Docker builder OR BuildKit — no BuildKit/buildx required.
+#   docker compose -f docker-compose-fe.yml build
 #
 # NOTE: NEXT_PUBLIC_* values are inlined at BUILD time (pass via build args).
 # Server-only vars (MEDIAMTX_API_URL, MEDIAMTX_ADMIN_USER/PASS, MEDIAMTX_HLS_URL,
@@ -20,8 +20,7 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
-    npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 # -----------------------
 # Stage: builder
@@ -60,8 +59,7 @@ ENV NEXT_PUBLIC_MEDIAMTX_SRT_HOST=${NEXT_PUBLIC_MEDIAMTX_SRT_HOST}
 ENV NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS=${NEXT_PUBLIC_MEDIAMTX_SRT_ADDRESS}
 ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 
-RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
-    npm run build
+RUN npm run build
 
 # -----------------------
 # Stage: runner (minimal)
