@@ -1,4 +1,4 @@
-import { createEvent, listEventsForAdmin } from "@/lib/relay-server"
+import { createEvent, listEventsForAdmin, RelayValidationError } from "@/lib/relay-server"
 import { requireDashboardAuth, unauthorizedResponse } from "@/lib/server-auth"
 
 /** Admin-only: list every relay event with live runtime for the dashboard. */
@@ -27,10 +27,12 @@ export async function POST(request: Request) {
 
   let displayName = ""
   let quota = 10
+  let path = ""
   try {
     const body = await request.json()
     displayName = typeof body?.displayName === "string" ? body.displayName.trim() : ""
     if (Number.isFinite(body?.quota)) quota = Number(body.quota)
+    if (typeof body?.path === "string") path = body.path.trim()
   } catch {
     // fall through to validation
   }
@@ -41,9 +43,12 @@ export async function POST(request: Request) {
 
   const authHeader = request.headers.get("authorization") ?? undefined
   try {
-    const created = await createEvent({ displayName, quota }, authHeader)
+    const created = await createEvent({ displayName, quota, path }, authHeader)
     return Response.json(created, { status: 201 })
-  } catch {
+  } catch (err) {
+    if (err instanceof RelayValidationError) {
+      return Response.json({ error: err.message }, { status: 400 })
+    }
     return Response.json({ error: "Không tạo được sự kiện" }, { status: 502 })
   }
 }

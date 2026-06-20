@@ -58,6 +58,7 @@ function formatDate(iso: string): string {
  */
 export function RelayEventsAdmin() {
   const [name, setName] = useState("")
+  const [customPath, setCustomPath] = useState("")
   const [quota, setQuota] = useState(10)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -98,7 +99,7 @@ export function RelayEventsAdmin() {
       const res = await fetch(`${basePath()}/api/relay/events`, {
         method: "POST",
         headers: { "content-type": "application/json", Authorization: getAuthHeader() },
-        body: JSON.stringify({ displayName: name.trim(), quota }),
+        body: JSON.stringify({ displayName: name.trim(), quota, path: customPath.trim() }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -107,6 +108,7 @@ export function RelayEventsAdmin() {
       }
       setCreated(body as CreatedEvent)
       setName("")
+      setCustomPath("")
       loadEvents()
     } catch {
       setError("Lỗi kết nối")
@@ -141,6 +143,17 @@ export function RelayEventsAdmin() {
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
+          </div>
+          <div className="flex-1 min-w-[220px]">
+            <Label htmlFor="evt-path">Path tùy chỉnh</Label>
+            <Input
+              id="evt-path"
+              placeholder="Để trống = tự tạo ngẫu nhiên"
+              value={customPath}
+              onChange={(e) => setCustomPath(e.target.value)}
+              pattern="[A-Za-z0-9_-]{3,64}"
+            />
+            <p className="mt-1 text-[11px] text-[#7c828a]">Chữ, số, _ và - (3–64 ký tự). Đây cũng là khóa ingest.</p>
           </div>
           <div className="w-28">
             <Label htmlFor="evt-quota">Quota luồng</Label>

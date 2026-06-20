@@ -75,6 +75,36 @@ function basePath() {
   return (process.env.NEXT_PUBLIC_BASE_PATH || "").replace(/\/+$/, "")
 }
 
+/**
+ * Copy text to the clipboard. The async Clipboard API only exists in secure
+ * contexts (HTTPS / localhost); over plain HTTP it's undefined, so fall back to
+ * a hidden-textarea + execCommand("copy") which works without a secure context.
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the legacy path below
+  }
+  try {
+    const ta = document.createElement("textarea")
+    ta.value = text
+    ta.setAttribute("readonly", "")
+    ta.style.position = "fixed"
+    ta.style.left = "-9999px"
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand("copy")
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 function formatBytes(bytes: number): string {
   if (!bytes || bytes < 0) return "0 bytes"
   const units = ["bytes", "KB", "MB", "GB", "TB"]
@@ -716,7 +746,7 @@ function SecurityCard({
               <Button
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard?.writeText(revealedCode)
+                  copyToClipboard(revealedCode)
                 }}
               >
                 <Copy className="mr-1 h-4 w-4" /> Copy
@@ -985,8 +1015,9 @@ function CopyRow({
         <Button
           size="sm"
           variant="secondary"
-          onClick={() => {
-            navigator.clipboard?.writeText(value)
+          onClick={async () => {
+            const ok = await copyToClipboard(value)
+            if (!ok) return
             setCopied(true)
             setTimeout(() => setCopied(false), 1500)
           }}

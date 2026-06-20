@@ -34,7 +34,7 @@ const loginRoute = await import("@/app/api/public/config/[token]/login/route")
 const configRoute = await import("@/app/api/public/config/[token]/route")
 const hlsRoute = await import("@/app/api/public/hls/[token]/[...seg]/route")
 const { CONFIG_SESSION_COOKIE } = await import("@/lib/relay-server")
-const { parseRunOnReady } = await import("@/lib/relay-event.mjs")
+const { parseRunOnReady, parseFanoutMeta, isFanoutPathName, fanoutPathName } = await import("@/lib/relay-event.mjs")
 
 /* -------------------------------------------------------------- helpers */
 let pass = 0
@@ -90,13 +90,26 @@ async function cleanup() {
     const list = (await (await backend("/v3/config/paths/list")).json()) as {
       items?: { name?: string; runOnReady?: string }[]
     }
-    let removed = 0
-    for (const item of list.items ?? []) {
+    const items = list.items ?? []
+    // 1) collect slugs of throwaway ITEST ingest paths.
+    const itestSlugs = new Set<string>()
+    for (const item of items) {
       const meta = item.runOnReady ? (parseRunOnReady(item.runOnReady) as { displayName?: string } | null) : null
-      if (meta?.displayName?.startsWith("ITEST-") && item.name) {
+      if (meta?.displayName?.startsWith("ITEST-") && item.name) itestSlugs.add(item.name)
+    }
+    let removed = 0
+    // 2) delete fan-out paths belonging to those events first, then the ingest.
+    for (const item of items) {
+      if (!item.name || !isFanoutPathName(item.name)) continue
+      const fm = item.runOnReady ? (parseFanoutMeta(item.runOnReady) as { parentSlug?: string } | null) : null
+      if (fm?.parentSlug && itestSlugs.has(fm.parentSlug)) {
         const r = await backend(`/v3/config/paths/delete/${encodeURIComponent(item.name)}`, { method: "DELETE" })
         if (r.ok) removed++
       }
+    }
+    for (const slug of itestSlugs) {
+      const r = await backend(`/v3/config/paths/delete/${encodeURIComponent(slug)}`, { method: "DELETE" })
+      if (r.ok) removed++
     }
     console.log(`  removed ${removed} throwaway path(s)`)
   } catch (e) {
@@ -179,14 +192,19 @@ try {
   assert.equal(cp.destinations.length, 0)
   ok(`GET config có cookie → 200, ingest=${cp.ingest.rtmp}`)
 
-  /* ---- D. Destinations / fan-out (ghi runOnReady thật) ---- */
-  section("D. Đích phát (fan-out)")
+  /* ---- D. Destinations / fan-out (mỗi đích = 1 path riêng) ---- */
+  section("D. Đích phát (fan-out path độc lập)")
   async function configPost(body: Record<string, unknown>) {
     return configRoute.POST(
       new Request("http://t/x", { method: "POST", headers: cookieHeader(session!), body: JSON.stringify(body) }),
       ctx({ token: ev.configToken }),
     )
   }
+  // Baseline: the ingest path's config BEFORE any destination edits. The whole
+  // point of the re-architecture is that destination CRUD must never touch it.
+  const ingestBefore = (await (await backend(`/v3/config/paths/get/${ev.pathKey}`)).json()) as { runOnReady?: string }
+  assert.ok(!/ffmpeg/.test(ingestBefore.runOnReady || ""), "ingest runOnReady là no-op trước khi thêm đích")
+
   r = await configPost({
     action: "add_destination",
     name: "FB Live",
@@ -209,14 +227,32 @@ try {
   assert.equal(r.status, 200)
   ok("thêm đích YouTube (enabled) → 200")
 
-  // Verify backend runOnReady now carries an ffmpeg tee fan-out with both URLs.
-  const conf2 = (await (await backend(`/v3/config/paths/get/${ev.pathKey}`)).json()) as { runOnReady?: string }
-  const ror = conf2.runOnReady || ""
-  assert.ok(ror.includes("ffmpeg"), "runOnReady có ffmpeg")
-  assert.ok(/(\\| -f tee|tee )/i.test(ror) || ror.includes("|"), "runOnReady fan-out nhiều đích")
-  assert.ok(ror.includes("facebook.com"), "đích FB có trong lệnh")
-  assert.ok(ror.includes("youtube.com"), "đích YT có trong lệnh")
-  ok("backend runOnReady = ffmpeg fan-out 2 đích (FB + YT)")
+  // KEY CONTRACT: the ingest path must be UNCHANGED — adding destinations no
+  // longer reloads it, so the live publisher is never kicked.
+  const ingestAfter = (await (await backend(`/v3/config/paths/get/${ev.pathKey}`)).json()) as { runOnReady?: string }
+  assert.equal(ingestAfter.runOnReady, ingestBefore.runOnReady, "ingest runOnReady KHÔNG đổi sau khi thêm đích")
+  assert.ok(!/ffmpeg/.test(ingestAfter.runOnReady || ""), "ingest path vẫn là no-op (không fan-out ở đây)")
+  ok("thêm đích KHÔNG chạm ingest path (publisher không bị ngắt)")
+
+  // Each destination is its OWN fan-out path `<slug>__fo__<id>` that pushes to
+  // exactly one platform, with its source pulling the ingest.
+  const listAfter = (await (await backend("/v3/config/paths/list")).json()) as {
+    items?: { name?: string; runOnReady?: string; source?: string }[]
+  }
+  const fanouts = (listAfter.items ?? []).filter((it) => {
+    if (!it.name || !isFanoutPathName(it.name)) return false
+    const fm = it.runOnReady ? (parseFanoutMeta(it.runOnReady) as { parentSlug?: string } | null) : null
+    return fm?.parentSlug === ev.pathKey
+  })
+  assert.equal(fanouts.length, 2, "có đúng 2 fan-out path (FB + YT)")
+  const fanoutCmds = fanouts.map((f) => f.runOnReady || "").join("\n")
+  assert.ok(fanoutCmds.includes("facebook.com"), "1 fan-out path đẩy sang FB")
+  assert.ok(fanoutCmds.includes("youtube.com"), "1 fan-out path đẩy sang YT")
+  assert.ok(
+    fanouts.every((f) => /^rtsp:\/\/localhost:8554\//.test(f.source || "")),
+    "fan-out path kéo nguồn từ ingest qua rtsp nội bộ",
+  )
+  ok("backend tạo 2 fan-out path độc lập (FB + YT), nguồn pull từ ingest")
 
   // Masked keys in payload, raw keys never exposed.
   r = await configRoute.GET(new Request("http://t/x", { headers: cookieHeader(session!) }), ctx({ token: ev.configToken }))
@@ -279,12 +315,26 @@ try {
   ok("set_record true → backend record=true")
   await configPost({ action: "set_record", enabled: false })
 
+  async function fanoutPathsFor(slug: string) {
+    const lst = (await (await backend("/v3/config/paths/list")).json()) as {
+      items?: { name?: string; runOnReady?: string }[]
+    }
+    return (lst.items ?? []).filter((it) => {
+      if (!it.name || !isFanoutPathName(it.name)) return false
+      const fm = it.runOnReady ? (parseFanoutMeta(it.runOnReady) as { parentSlug?: string } | null) : null
+      return fm?.parentSlug === slug
+    })
+  }
   r = await configPost({ action: "set_relay", enabled: false })
   assert.equal(r.status, 200)
-  const confRelay = (await (await backend(`/v3/config/paths/get/${ev.pathKey}`)).json()) as { runOnReady?: string }
-  assert.ok(!/ffmpeg/.test(confRelay.runOnReady || "") , "relay off → runOnReady không chạy ffmpeg")
-  ok("set_relay false → runOnReady thành no-op (giữ RELAY_META)")
+  const foOff = await fanoutPathsFor(ev.pathKey)
+  assert.ok(foOff.length > 0, "vẫn còn fan-out path khi tắt relay")
+  assert.ok(foOff.every((f) => !/ffmpeg/.test(f.runOnReady || "")), "relay off → mọi fan-out path thành no-op (giữ RELAY_FANOUT)")
+  ok("set_relay false → các fan-out path ngừng đẩy nhưng vẫn giữ metadata")
   await configPost({ action: "set_relay", enabled: true })
+  const foOn = await fanoutPathsFor(ev.pathKey)
+  assert.ok(foOn.some((f) => /ffmpeg/.test(f.runOnReady || "")), "relay on → fan-out path đẩy lại bằng ffmpeg")
+  ok("set_relay true → fan-out path đẩy lại")
 
   /* ---- F. Token rotation + đổi/sinh lại mã ---- */
   section("F. Xoay token + đổi mã đăng nhập")
@@ -334,6 +384,16 @@ try {
   assert.equal(oldGone.status, 404, "path cũ đã xóa trên backend")
   const newExists = await backend(`/v3/config/paths/get/${rs.slug}`)
   assert.equal(newExists.status, 200, "path mới tồn tại")
+  // Fan-out paths must cascade to the new slug (old set deleted, new set created).
+  const foOld = await fanoutPathsFor(ev.pathKey)
+  assert.equal(foOld.length, 0, "fan-out path theo slug cũ đã bị xóa")
+  const foNew = await fanoutPathsFor(rs.slug)
+  assert.equal(foNew.length, 2, "fan-out path tái tạo dưới slug mới (YT + C3)")
+  assert.ok(
+    foNew.every((f) => f.name === fanoutPathName(rs.slug, parseFanoutMeta(f.runOnReady || "")?.id || "")),
+    "tên fan-out path mới khớp slug mới + id đích",
+  )
+  ok("rotate_stream_id: fan-out path cascade sang slug mới, set cũ đã dọn")
   // share tokens preserved → config GET still works with same configToken
   chk = await configRoute.GET(new Request("http://t/x", { headers: cookieHeader(session) }), ctx({ token: ev.configToken }))
   assert.equal(chk.status, 200, "configToken giữ nguyên sau khi xoay key")

@@ -7,7 +7,11 @@
 import assert from "node:assert/strict"
 import {
   parseRunOnReady,
-  hashLoginCode,
+  parseFanoutMeta,
+  isFanoutPathName,
+  fanoutPathName,
+  fanoutSourceUrl,
+  buildFanoutRunOnReady,
 } from "@/lib/relay-event.mjs"
 
 /* ------------------------------------------------------------------ */
@@ -107,7 +111,8 @@ const meta = parseRunOnReady(addBody.runOnReady as string)
 assert.ok(meta, "runOnReady carries RELAY_META")
 assert.equal(meta.displayName, "Test Event")
 assert.equal(meta.quota, 5)
-assert.equal(meta.destinations.length, 0)
+assert.equal(meta.destinations, undefined, "new events carry NO destinations array in meta")
+assert.ok(!(addBody.runOnReady as string).includes("ffmpeg "), "ingest runOnReady is a metadata no-op")
 assert.equal(meta.statusToken, created.statusToken)
 
 /* authOverride forwards a logged-in admin's header instead of env ----- */
@@ -213,17 +218,41 @@ assert.deepEqual(online.tracks, ["H264", "AAC"])
 assert.equal(online.sourceType, "rtmpConn")
 
 /* ------------------------------------------------------------------ */
-/* destination CRUD: add → quota gate → enable too many → reject       */
+/* destination CRUD: each destination is its OWN fan-out path; the      */
+/* ingest path is NEVER touched (no publisher cut on destination edits) */
 /* ------------------------------------------------------------------ */
 
 const event = {
   pathName: goodMeta.slug,
-  meta: { ...goodMeta, quota: 2, destinations: [] },
+  meta: { ...goodMeta, quota: 2 },
   runOnReady: "",
 }
 
+/** Mock `/v3/config/paths/list` to return the given dests as fan-out paths. */
+function listHandlerFor(slug: string, dests: Array<Record<string, unknown>>): Handler {
+  return (call) => {
+    if (call.url.endsWith("/v3/config/paths/list")) {
+      return {
+        body: {
+          items: dests.map((d) => ({
+            name: fanoutPathName(slug, d.id as string),
+            runOnReady: buildFanoutRunOnReady(d, { slug, relayEnabled: true }),
+          })),
+        },
+      }
+    }
+    return { body: {} }
+  }
+}
+
+const twoEnabled = [
+  { id: "x1", name: "A", platform: "facebook", serverUrl: "rtmp://a", streamKey: "k", enabled: true },
+  { id: "x2", name: "B", platform: "youtube", serverUrl: "rtmp://b", streamKey: "k", enabled: true },
+]
+
+/* Add the first enabled destination → creates ONE fan-out path, ingest untouched */
 resetCalls()
-setHandler(() => ({ body: {} }))
+setHandler(listHandlerFor(goodMeta.slug, []))
 let r = await server.addEventDestination(event, {
   name: "FB",
   platform: "facebook",
@@ -232,25 +261,30 @@ let r = await server.addEventDestination(event, {
   enabled: true,
 })
 assert.equal(r.ok, true, "first enabled destination accepted")
-assert.equal(calls.length, 1)
-assert.equal(calls[0].method, "PATCH", "writes via PATCH")
-const patchedMeta = parseRunOnReady((calls[0].body as Record<string, unknown>).runOnReady as string)
-assert.equal(patchedMeta.destinations.length, 1)
-assert.equal(patchedMeta.destinations[0].name, "FB")
+const addPost = calls.find((c) => c.method === "POST" && c.url.includes("/v3/config/paths/add/"))
+assert.ok(addPost, "destination add creates a fan-out path via POST add")
+assert.ok(
+  !calls.some((c) => c.method === "PATCH" || c.method === "DELETE"),
+  "ingest path is never patched/deleted when adding a destination",
+)
+const addedBody = addPost!.body as Record<string, unknown>
+assert.ok(isFanoutPathName(addedBody.name as string), "new path uses the fan-out namespace")
+assert.ok((addedBody.name as string).startsWith(`${goodMeta.slug}__fo__`), "fan-out path is scoped to the slug")
+assert.equal(addedBody.source, fanoutSourceUrl(goodMeta.slug), "fan-out pulls from the local ingest RTSP")
+assert.equal(addedBody.sourceOnDemand, false, "fan-out always pulls so it goes ready with the ingest")
+const fanMeta = parseFanoutMeta(addedBody.runOnReady as string)
+assert.ok(fanMeta, "fan-out path carries RELAY_FANOUT meta")
+assert.equal(fanMeta.name, "FB")
+assert.equal(fanMeta.platform, "facebook")
+assert.equal(fanMeta.enabled, true)
+assert.equal(fanMeta.parentSlug, goodMeta.slug, "fan-out meta links back to the parent ingest slug")
+// stream key is NOT masked in the stored config (MediaMTX needs it to push)
+assert.equal(fanMeta.streamKey, "k1")
 
-/* Adding a third ENABLED dest while quota=2 with 2 enabled in-meta → quota error */
-const eventFull = {
-  ...event,
-  meta: {
-    ...event.meta,
-    destinations: [
-      { id: "x1", name: "A", platform: "facebook", serverUrl: "rtmp://a", streamKey: "k", enabled: true },
-      { id: "x2", name: "B", platform: "youtube", serverUrl: "rtmp://b", streamKey: "k", enabled: true },
-    ],
-  },
-}
+/* Adding a third ENABLED dest while quota=2 with 2 enabled fan-out paths → quota error */
 resetCalls()
-r = await server.addEventDestination(eventFull, {
+setHandler(listHandlerFor(goodMeta.slug, twoEnabled))
+r = await server.addEventDestination(event, {
   name: "C",
   platform: "custom",
   serverUrl: "rtmp://c",
@@ -259,11 +293,12 @@ r = await server.addEventDestination(eventFull, {
 })
 assert.equal(r.ok, false, "quota gate triggers")
 assert.equal(r.error, "Vượt quá quota luồng đang bật")
-assert.equal(calls.length, 0, "no upstream call when quota fails")
+assert.ok(!calls.some((c) => c.method === "POST"), "no fan-out path created when quota fails")
 
 /* Adding a DISABLED dest above quota → OK; enabling it later → quota check */
 resetCalls()
-r = await server.addEventDestination(eventFull, {
+setHandler(listHandlerFor(goodMeta.slug, twoEnabled))
+r = await server.addEventDestination(event, {
   name: "C",
   platform: "custom",
   serverUrl: "rtmp://c",
@@ -274,6 +309,7 @@ assert.equal(r.ok, true, "disabled-above-quota add allowed (we only count enable
 
 /* Validation errors bubble up before any fetch ------------------------ */
 resetCalls()
+setHandler(listHandlerFor(goodMeta.slug, []))
 r = await server.addEventDestination(event, {
   name: "no scheme",
   platform: "facebook",
@@ -286,17 +322,37 @@ assert.equal(calls.length, 0, "validation failure → no upstream traffic")
 
 /* updateEventDestination: unknown id → error, no PATCH ----------------- */
 resetCalls()
-r = await server.updateEventDestination(eventFull, "no-such-id", { enabled: false })
+setHandler(listHandlerFor(goodMeta.slug, twoEnabled))
+r = await server.updateEventDestination(event, "no-such-id", { enabled: false })
 assert.equal(r.ok, false)
-assert.equal(calls.length, 0)
+assert.equal(r.error, "Không tìm thấy luồng")
+assert.ok(!calls.some((c) => c.method === "PATCH"), "unknown id → no fan-out PATCH")
 
-/* deleteEventDestination: PATCHes and the new runOnReady drops the row */
+/* updateEventDestination: edits ONLY the one fan-out path -------------- */
 resetCalls()
-await server.deleteEventDestination(eventFull, "x1")
-assert.equal(calls.length, 1)
-const afterDelete = parseRunOnReady((calls[0].body as Record<string, unknown>).runOnReady as string)
-assert.equal(afterDelete.destinations.length, 1)
-assert.equal(afterDelete.destinations[0].id, "x2")
+setHandler(listHandlerFor(goodMeta.slug, twoEnabled))
+r = await server.updateEventDestination(event, "x1", { name: "A-renamed", enabled: false })
+assert.equal(r.ok, true)
+const updPatch = calls.find((c) => c.method === "PATCH")
+assert.ok(updPatch, "update patches the target fan-out path")
+assert.ok(
+  decodeURIComponent(updPatch!.url).endsWith(fanoutPathName(goodMeta.slug, "x1")),
+  "patches exactly <slug>__fo__x1, not the ingest path",
+)
+const updMeta = parseFanoutMeta((updPatch!.body as Record<string, unknown>).runOnReady as string)
+assert.equal(updMeta.name, "A-renamed")
+assert.equal(updMeta.enabled, false)
+
+/* deleteEventDestination: removes ONLY the fan-out path, ingest untouched */
+resetCalls()
+setHandler(() => ({ body: {} }))
+await server.deleteEventDestination(event, "x1")
+assert.equal(calls.length, 1, "delete is a single upstream call")
+assert.equal(calls[0].method, "DELETE")
+assert.ok(
+  decodeURIComponent(calls[0].url).endsWith(fanoutPathName(goodMeta.slug, "x1")),
+  "deletes exactly the target fan-out path",
+)
 
 /* ------------------------------------------------------------------ */
 /* setEventRecord / setEventRelay PATCH the right field                 */
@@ -386,7 +442,7 @@ assert.equal(fbMeta.fallback.text, "Slate")
 resetCalls()
 fb = await server.setEventFallback(event, { type: "image", assetRef: "/x.png" })
 assert.equal(fb.ok, false)
-assert.match(fb.error || "", /asset storage/, "image type rejected with explanation")
+assert.match(fb.error || "", /RELAY_ASSET_BASE_URL/, "image type rejected when asset base URL unset")
 assert.equal(calls.length, 0, "no upstream call when fallback rejected")
 
 resetCalls()

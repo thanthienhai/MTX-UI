@@ -15,28 +15,41 @@
 
 import {
   parseRunOnReady,
+  parseFanoutMeta,
   toPublicStatus,
   verifyLoginCode,
   buildIngestUrls,
   buildRunOnReady,
   relayHasActiveCommand,
+  buildFanoutRunOnReady,
+  buildFanoutRunOnNotReady,
+  fanoutPathName,
+  isFanoutPathName,
+  fanoutSourceUrl,
   createEventMeta,
   createSessionToken,
   verifySessionToken,
   setMetaLoginCode,
   setMetaRelayEnabled,
   rotateMetaSlug,
-  addMetaDestination,
-  updateMetaDestination,
-  deleteMetaDestination,
-  countEnabledDestinations,
+  validateDestinationInput,
+  normalizeDestinationPatch,
+  generateDestinationId,
   rotateMetaStatusToken,
   rotateMetaConfigToken,
   regenerateMetaLoginCode,
   setMetaFallback,
-  buildRunOnNotReady,
+  validateCustomPath,
 } from "@/lib/relay-event.mjs"
 import { recordAudit, getAuditFor, type AuditEntry } from "@/lib/relay-audit"
+
+/** Thrown when user input fails validation — routes map this to HTTP 400. */
+export class RelayValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "RelayValidationError"
+  }
+}
 
 export interface RelayDestination {
   id: string
@@ -45,6 +58,8 @@ export interface RelayDestination {
   serverUrl: string
   streamKey: string
   enabled: boolean
+  /** ISO timestamp used only for deterministic ordering; not shown to users. */
+  createdAt?: string
 }
 
 export interface EventMeta {
@@ -54,11 +69,20 @@ export interface EventMeta {
   statusToken: string
   configToken: string
   loginCode: { salt: string; hash: string }
-  destinations: RelayDestination[]
+  /** Legacy: destinations used to live in event meta; now in fan-out paths. */
+  destinations?: RelayDestination[]
   quota: number
   createdAt: string
   fallback?: unknown
+  relayEnabled?: boolean
   [key: string]: unknown
+}
+
+/** Destination metadata as stored in a fan-out path's RELAY_FANOUT comment. */
+interface FanoutMeta extends RelayDestination {
+  parentSlug: string
+  createdAt?: string
+  v?: number
 }
 
 const DEFAULT_UPSTREAM_API_URL = "http://localhost:9997"
@@ -184,18 +208,68 @@ export function getPublicHosts(fallbackHost?: string): PublicHosts {
   }
 }
 
-/** List every path config that carries RELAY_META, decoded. */
-export async function listEvents(): Promise<ResolvedEvent[]> {
+/** Fetch every MediaMTX path config in one call (ingest + fan-out paths). */
+export async function listAllPaths(): Promise<PathConfRaw[]> {
   const data = await mtxFetch<ListResponse<PathConfRaw>>("/v3/config/paths/list")
+  return data.items ?? []
+}
+
+/**
+ * List every event (ingest) path: carries RELAY_META and is NOT a fan-out path.
+ * Pass `items` to reuse a prior {@link listAllPaths} result and avoid a refetch.
+ */
+export async function listEvents(items?: PathConfRaw[]): Promise<ResolvedEvent[]> {
+  const all = items ?? (await listAllPaths())
   const events: ResolvedEvent[] = []
-  for (const item of data.items ?? []) {
+  for (const item of all) {
+    if (!item.name || isFanoutPathName(item.name)) continue
     const runOnReady = typeof item.runOnReady === "string" ? item.runOnReady : ""
     const meta = parseRunOnReady(runOnReady) as EventMeta | null
-    if (meta && item.name) {
-      events.push({ pathName: item.name, meta, runOnReady })
-    }
+    if (meta) events.push({ pathName: item.name, meta, runOnReady })
   }
   return events
+}
+
+/**
+ * Reconstruct an event's destinations by scanning its fan-out paths
+ * (`<slug>__fo__*`). Each fan-out path carries one destination's full metadata
+ * in its RELAY_FANOUT comment. Pass `items` to reuse a prior path list.
+ * Sorted stably (createdAt, then id) so the UI order is deterministic.
+ */
+export async function resolveDestinations(slug: string, items?: PathConfRaw[]): Promise<RelayDestination[]> {
+  const all = items ?? (await listAllPaths())
+  const dests: RelayDestination[] = []
+  for (const item of all) {
+    if (!item.name || !isFanoutPathName(item.name)) continue
+    const runOnReady = typeof item.runOnReady === "string" ? item.runOnReady : ""
+    const fm = parseFanoutMeta(runOnReady) as FanoutMeta | null
+    if (!fm || fm.parentSlug !== slug || !fm.id) continue
+    dests.push({
+      id: fm.id,
+      name: fm.name ?? "",
+      platform: fm.platform ?? "custom",
+      serverUrl: fm.serverUrl ?? "",
+      streamKey: fm.streamKey ?? "",
+      enabled: !!fm.enabled,
+      createdAt: fm.createdAt ?? "",
+    })
+  }
+  dests.sort(
+    (a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id),
+  )
+  return dests
+}
+
+/**
+ * Destinations for an event, preferring fan-out paths but falling back to the
+ * legacy `meta.destinations` array (read-only display) for events not yet
+ * migrated. `items` reuses a prior path list to avoid a refetch.
+ */
+async function destinationsForEvent(event: ResolvedEvent, items?: PathConfRaw[]): Promise<RelayDestination[]> {
+  const fromPaths = await resolveDestinations(event.meta.slug, items)
+  if (fromPaths.length > 0) return fromPaths
+  const legacy = event.meta.destinations
+  return Array.isArray(legacy) ? legacy : []
 }
 
 export type TokenKind = "status" | "config"
@@ -239,11 +313,12 @@ export interface AdminEventRow {
  * unrecoverable and useless to the client. Newest first.
  */
 export async function listEventsForAdmin(): Promise<AdminEventRow[]> {
-  const events = await listEvents()
+  const all = await listAllPaths()
+  const events = await listEvents(all)
   const rows = await Promise.all(
     events.map(async (e): Promise<AdminEventRow> => {
       const rt = await getEventRuntime(e.pathName)
-      const dests = e.meta.destinations ?? []
+      const dests = await destinationsForEvent(e, all)
       return {
         pathKey: e.pathName,
         displayName: e.meta.displayName,
@@ -263,8 +338,19 @@ export async function listEventsForAdmin(): Promise<AdminEventRow[]> {
   return rows
 }
 
-/** Delete an event = remove its MediaMTX path. Uses the admin's forwarded auth. */
+/**
+ * Delete an event: cascade-delete every fan-out path (`<slug>__fo__*`) first,
+ * then the ingest path itself. Uses the admin's forwarded auth.
+ */
 export async function deleteEvent(pathName: string, authOverride?: string): Promise<void> {
+  const dests = await resolveDestinations(pathName)
+  for (const d of dests) {
+    await mtxFetch(
+      `/v3/config/paths/delete/${encodeURIComponent(fanoutPathName(pathName, d.id))}`,
+      { method: "DELETE" },
+      authOverride,
+    ).catch(() => {})
+  }
   await mtxFetch(`/v3/config/paths/delete/${encodeURIComponent(pathName)}`, { method: "DELETE" }, authOverride)
 }
 
@@ -315,7 +401,8 @@ export async function patchEventRunOnReady(pathName: string, runOnReady: string)
  */
 export async function buildStatusPayload(event: ResolvedEvent) {
   const runtime = await getEventRuntime(event.pathName)
-  const publicStatus = toPublicStatus(event.meta)
+  const destinations = await destinationsForEvent(event)
+  const publicStatus = toPublicStatus(event.meta, destinations)
   // Ingest URLs embed the slug (= ingest key) and MUST NOT leak to anonymous
   // viewers. The status page is share-with-anyone; only the owner sees ingest.
   return {
@@ -367,7 +454,8 @@ export async function buildConfigPayload(event: ResolvedEvent, requestHost?: str
   const hosts = getPublicHosts(requestHost)
   const ingest = buildIngestUrls(event.meta.slug, hosts)
   const conf = await getPathConfRaw(event.pathName)
-  const destinations = (event.meta.destinations ?? []).map((d) => ({
+  const resolved = await destinationsForEvent(event)
+  const destinations = resolved.map((d) => ({
     id: d.id,
     name: d.name,
     platform: d.platform,
@@ -416,6 +504,11 @@ async function getPathConfRaw(pathName: string): Promise<PathConfRaw | null> {
   }
 }
 
+/** Whether a MediaMTX path with this name already exists (collision guard). */
+export async function pathExists(pathName: string): Promise<boolean> {
+  return (await getPathConfRaw(pathName)) !== null
+}
+
 /* ------------------------------------------------------------------ */
 /* Mutations (create / record / relay / rotate / change code)          */
 /* ------------------------------------------------------------------ */
@@ -432,10 +525,15 @@ export interface CreatedEvent {
  * RELAY_META. Uses the admin's forwarded auth header for the write.
  */
 export async function createEvent(
-  input: { displayName: string; quota?: number },
+  input: { displayName: string; quota?: number; path?: string },
   authOverride?: string,
 ): Promise<CreatedEvent> {
-  const { meta, loginCode, pathKey } = createEventMeta(input)
+  const v = validateCustomPath(input.path)
+  if (!v.ok) throw new RelayValidationError(v.error)
+  if (v.value && (await pathExists(v.value))) {
+    throw new RelayValidationError("Path này đã tồn tại, hãy chọn tên khác")
+  }
+  const { meta, loginCode, pathKey } = createEventMeta({ ...input, slug: v.value || undefined })
   const runOnReady = buildRunOnReady(meta)
   await mtxFetch(
     `/v3/config/paths/add/${encodeURIComponent(pathKey)}`,
@@ -445,7 +543,7 @@ export async function createEvent(
         name: pathKey,
         source: "publisher",
         runOnReady,
-        runOnReadyRestart: relayHasActiveCommand(meta),
+        runOnReadyRestart: relayHasActiveCommand(),
         record: false,
       }),
     },
@@ -464,41 +562,25 @@ export async function setEventRecord(event: ResolvedEvent, enabled: boolean, aut
 }
 
 export async function setEventRelay(event: ResolvedEvent, enabled: boolean, authOverride?: string): Promise<void> {
-  const meta = setMetaRelayEnabled(event.meta, enabled)
-  await mtxFetch(
-    `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({
-        runOnReady: buildRunOnReady(meta),
-        runOnReadyRestart: relayHasActiveCommand(meta),
-        runOnNotReady: buildRunOnNotReady(meta, { assetBaseUrl: assetBaseUrl() }),
-      }),
-    },
-    authOverride,
-  )
+  const meta = setMetaRelayEnabled(event.meta, enabled) as EventMeta
+  // Store the master flag on the ingest meta, then re-wire every fan-out path
+  // (each push/standby command depends on the relay master switch).
+  await applyMetaPatch(event, meta, authOverride)
+  await patchAllFanoutPaths({ ...event, meta }, { relayEnabled: enabled, fallback: meta.fallback }, authOverride)
   audit("relay.set", event, { enabled: !!enabled })
 }
 
 export async function changeEventLoginCode(event: ResolvedEvent, newCode: string, authOverride?: string): Promise<void> {
-  const meta = setMetaLoginCode(event.meta, newCode)
-  await mtxFetch(
-    `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({
-        runOnReady: buildRunOnReady(meta),
-        runOnReadyRestart: relayHasActiveCommand(meta),
-      }),
-    },
-    authOverride,
-  )
+  const meta = setMetaLoginCode(event.meta, newCode) as EventMeta
+  await applyMetaPatch(event, meta, authOverride)
   audit("login_code.change", event)
 }
 
 /**
- * Apply a meta mutation to an event's runOnReady. Shared by all destination /
- * token rotation actions so we only have one PATCH path.
+ * Persist an event-level meta mutation onto the INGEST path's runOnReady (the
+ * metadata no-op). The ingest path never fans out anymore, so its runOnReady
+ * never auto-restarts and it carries no standby (`runOnNotReady` cleared).
+ * Shared by token rotations, login-code and fallback/relay master changes.
  */
 async function applyMetaPatch(event: ResolvedEvent, newMeta: EventMeta, authOverride?: string): Promise<void> {
   await mtxFetch(
@@ -507,12 +589,53 @@ async function applyMetaPatch(event: ResolvedEvent, newMeta: EventMeta, authOver
       method: "PATCH",
       body: JSON.stringify({
         runOnReady: buildRunOnReady(newMeta),
-        runOnReadyRestart: relayHasActiveCommand(newMeta),
-        runOnNotReady: buildRunOnNotReady(newMeta, { assetBaseUrl: assetBaseUrl() }),
+        runOnReadyRestart: relayHasActiveCommand(),
+        runOnNotReady: "",
       }),
     },
     authOverride,
   )
+}
+
+/* ------------------------------------------------------------------ */
+/* Fan-out path wiring (one MediaMTX path per destination)             */
+/* ------------------------------------------------------------------ */
+
+interface FanoutWireOpts {
+  relayEnabled: boolean
+  fallback: unknown
+}
+
+/** The three runtime fields that drive a destination's fan-out path. */
+function fanoutRunFields(slug: string, dest: RelayDestination, opts: FanoutWireOpts) {
+  return {
+    runOnReady: buildFanoutRunOnReady(dest, { slug, relayEnabled: opts.relayEnabled }),
+    runOnReadyRestart: opts.relayEnabled && !!dest.enabled,
+    runOnNotReady: buildFanoutRunOnNotReady(dest, opts.fallback, {
+      slug,
+      assetBaseUrl: assetBaseUrl(),
+      relayEnabled: opts.relayEnabled,
+    }),
+  }
+}
+
+/** Full path-config body to CREATE a destination's fan-out path. */
+function fanoutAddBody(slug: string, dest: RelayDestination, opts: FanoutWireOpts) {
+  const name = fanoutPathName(slug, dest.id)
+  return { name, source: fanoutSourceUrl(slug), sourceOnDemand: false, ...fanoutRunFields(slug, dest, opts) }
+}
+
+/** Re-wire every fan-out path of an event (used by relay/fallback master edits). */
+async function patchAllFanoutPaths(event: ResolvedEvent, opts: FanoutWireOpts, authOverride?: string): Promise<void> {
+  const slug = event.meta.slug
+  const dests = await resolveDestinations(slug)
+  for (const d of dests) {
+    await mtxFetch(
+      `/v3/config/paths/patch/${encodeURIComponent(fanoutPathName(slug, d.id))}`,
+      { method: "PATCH", body: JSON.stringify(fanoutRunFields(slug, d, opts)) },
+      authOverride,
+    ).catch(() => {})
+  }
 }
 
 /**
@@ -569,50 +692,93 @@ export interface ActionResult {
 }
 
 /**
- * Add a destination. Enforces quota by COUNT OF ENABLED destinations — adding
- * a disabled destination above quota is allowed; the user must disable an
- * existing one before turning the new one on.
+ * Add a destination as its OWN MediaMTX fan-out path (`<slug>__fo__<id>`). The
+ * ingest path is never touched, so the live publisher and existing destinations
+ * keep streaming. Quota is enforced by COUNT OF ENABLED destinations — adding a
+ * disabled one above quota is allowed; the user must disable an existing one
+ * before turning the new one on.
  */
 export async function addEventDestination(
   event: ResolvedEvent,
   input: DestinationInput,
   authOverride?: string,
 ): Promise<ActionResult> {
-  const result = addMetaDestination(event.meta, input)
-  if (result.error) return { ok: false, error: result.error }
-  const newMeta = result.meta as EventMeta
-  if (countEnabledDestinations(newMeta) > (event.meta.quota ?? 10)) {
+  const v = validateDestinationInput(input)
+  if (!v.ok) return { ok: false, error: v.error }
+  const slug = event.meta.slug
+  const relayEnabled = event.meta.relayEnabled !== false
+  const willEnable = !!input.enabled
+
+  const current = await resolveDestinations(slug)
+  const enabledNow = current.filter((d) => d.enabled).length
+  if (enabledNow + (willEnable ? 1 : 0) > (event.meta.quota ?? 10)) {
     return { ok: false, error: "Vượt quá quota luồng đang bật" }
   }
-  await applyMetaPatch(event, newMeta, authOverride)
-  audit("destination.add", event, { platform: input.platform, enabled: !!input.enabled })
+
+  const dest: RelayDestination = {
+    id: generateDestinationId(),
+    name: v.normalized.name,
+    platform: v.normalized.platform,
+    serverUrl: String(v.normalized.serverUrl).replace(/\/+$/, ""),
+    streamKey: v.normalized.streamKey,
+    enabled: willEnable,
+    createdAt: new Date().toISOString(),
+  }
+  const body = fanoutAddBody(slug, dest, { relayEnabled, fallback: event.meta.fallback })
+  await mtxFetch(
+    `/v3/config/paths/add/${encodeURIComponent(body.name)}`,
+    { method: "POST", body: JSON.stringify(body) },
+    authOverride,
+  )
+  audit("destination.add", event, { platform: dest.platform, enabled: dest.enabled })
   return { ok: true }
 }
 
+/**
+ * Edit one destination by patching ONLY its fan-out path. The ingest path is
+ * untouched, so the publisher and other destinations are unaffected.
+ */
 export async function updateEventDestination(
   event: ResolvedEvent,
   id: string,
   patch: DestinationPatch,
   authOverride?: string,
 ): Promise<ActionResult> {
-  const result = updateMetaDestination(event.meta, id, patch)
-  if (result.error) return { ok: false, error: result.error }
-  const newMeta = result.meta as EventMeta
-  if (countEnabledDestinations(newMeta) > (event.meta.quota ?? 10)) {
+  const slug = event.meta.slug
+  const relayEnabled = event.meta.relayEnabled !== false
+  const current = await resolveDestinations(slug)
+  const existing = current.find((d) => d.id === id)
+  if (!existing) return { ok: false, error: "Không tìm thấy luồng" }
+
+  const norm = normalizeDestinationPatch(patch || {})
+  if (norm.error) return { ok: false, error: norm.error }
+  const next: RelayDestination = { ...existing, ...norm.patch }
+
+  const enabledAfter = current.map((d) => (d.id === id ? next : d)).filter((d) => d.enabled).length
+  if (enabledAfter > (event.meta.quota ?? 10)) {
     return { ok: false, error: "Vượt quá quota luồng đang bật" }
   }
-  await applyMetaPatch(event, newMeta, authOverride)
+
+  await mtxFetch(
+    `/v3/config/paths/patch/${encodeURIComponent(fanoutPathName(slug, id))}`,
+    { method: "PATCH", body: JSON.stringify(fanoutRunFields(slug, next, { relayEnabled, fallback: event.meta.fallback })) },
+    authOverride,
+  )
   audit("destination.update", event, { id, fields: Object.keys(patch) })
   return { ok: true }
 }
 
+/** Delete one destination by removing its fan-out path. Ingest untouched. */
 export async function deleteEventDestination(
   event: ResolvedEvent,
   id: string,
   authOverride?: string,
 ): Promise<void> {
-  const newMeta = deleteMetaDestination(event.meta, id) as EventMeta
-  await applyMetaPatch(event, newMeta, authOverride)
+  await mtxFetch(
+    `/v3/config/paths/delete/${encodeURIComponent(fanoutPathName(event.meta.slug, id))}`,
+    { method: "DELETE" },
+    authOverride,
+  )
   audit("destination.delete", event, { id })
 }
 
@@ -681,7 +847,14 @@ export async function setEventFallback(
     }
   }
   const newMeta = setMetaFallback(event.meta, input) as EventMeta
+  // Store fallback config on the ingest meta, then re-wire each destination's
+  // per-path standby (every fan-out path carries its own slate fallback now).
   await applyMetaPatch(event, newMeta, authOverride)
+  await patchAllFanoutPaths(
+    { ...event, meta: newMeta },
+    { relayEnabled: newMeta.relayEnabled !== false, fallback: newMeta.fallback },
+    authOverride,
+  )
   audit("fallback.set", event, { type: input.type, enabled: input.enabled !== false })
   return { ok: true }
 }
@@ -693,14 +866,40 @@ export async function setEventFallback(
  */
 export async function rotateEventStreamId(event: ResolvedEvent, authOverride?: string): Promise<string> {
   const { meta: newMeta, oldSlug, newSlug } = rotateMetaSlug(event.meta)
+  const relayEnabled = newMeta.relayEnabled !== false
+  const dests = await resolveDestinations(oldSlug)
+
+  // Recreate the ingest path under the new slug (publisher must re-point here).
   const oldConf = (await getPathConfRaw(oldSlug)) ?? {}
-  const runOnReady = buildRunOnReady(newMeta)
-  const body = { ...oldConf, name: newSlug, runOnReady, runOnReadyRestart: relayHasActiveCommand(newMeta) }
+  const body = {
+    ...oldConf,
+    name: newSlug,
+    runOnReady: buildRunOnReady(newMeta),
+    runOnReadyRestart: relayHasActiveCommand(),
+    runOnNotReady: "",
+  }
   await mtxFetch(
     `/v3/config/paths/add/${encodeURIComponent(newSlug)}`,
     { method: "POST", body: JSON.stringify(body) },
     authOverride,
   )
+
+  // Recreate every fan-out path under the new slug (its source + name change),
+  // then drop the stale one. Destination metadata is preserved verbatim.
+  for (const d of dests) {
+    const fanBody = fanoutAddBody(newSlug, d, { relayEnabled, fallback: newMeta.fallback })
+    await mtxFetch(
+      `/v3/config/paths/add/${encodeURIComponent(fanBody.name)}`,
+      { method: "POST", body: JSON.stringify(fanBody) },
+      authOverride,
+    )
+    await mtxFetch(
+      `/v3/config/paths/delete/${encodeURIComponent(fanoutPathName(oldSlug, d.id))}`,
+      { method: "DELETE" },
+      authOverride,
+    ).catch(() => {})
+  }
+
   await mtxFetch(`/v3/config/paths/delete/${encodeURIComponent(oldSlug)}`, { method: "DELETE" }, authOverride)
   return newSlug
 }

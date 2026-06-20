@@ -3,6 +3,8 @@ import assert from "node:assert/strict"
 import {
   META_PREFIX,
   META_VERSION,
+  FANOUT_PREFIX,
+  FANOUT_SEPARATOR,
   generateToken,
   generateStreamKey,
   generateLoginCode,
@@ -13,6 +15,12 @@ import {
   destinationUrl,
   buildRunOnReady,
   relayHasActiveCommand,
+  buildFanoutRunOnReady,
+  buildFanoutRunOnNotReady,
+  fanoutPathName,
+  isFanoutPathName,
+  fanoutSourceUrl,
+  parseFanoutMeta,
   encodeMeta,
   decodeMeta,
   parseRunOnReady,
@@ -23,6 +31,7 @@ import {
   setMetaLoginCode,
   rotateMetaSlug,
   setMetaRelayEnabled,
+  validateCustomPath,
   validateDestinationInput,
   addMetaDestination,
   updateMetaDestination,
@@ -85,41 +94,81 @@ assert.match(encoded, /^[A-Za-z0-9_-]+$/, "encoded meta is base64url")
 assert.deepEqual(decodeMeta(encoded), sample, "decode round-trips")
 assert.equal(decodeMeta("!!!not-base64-json"), null, "bad meta decodes to null")
 
-/* runOnReady with no destinations -> no-op comment ---------------------- */
+/* ingest runOnReady is ALWAYS a metadata no-op (fan-out lives elsewhere) */
 const { meta } = createEventMeta({ displayName: "Nguyễn Cao Nguyên", quota: 10 })
 assert.equal(meta.version, META_VERSION)
 assert.match(meta.slug, /^[A-Za-z0-9]{20}$/)
 assert.ok(meta.statusToken && meta.configToken)
-assert.equal(meta.destinations.length, 0)
-const emptyRor = buildRunOnReady(meta)
-assert.ok(emptyRor.startsWith("sh -c "), "runOnReady wrapped in sh -c for real-shell semantics")
-assert.ok(emptyRor.includes(": " + META_PREFIX), "empty fan-out degrades to no-op comment")
-assert.deepEqual(parseRunOnReady(emptyRor), meta, "meta survives in no-op runOnReady")
-assert.equal(relayHasActiveCommand(meta), false, "no destinations -> no-op, must not auto-restart")
+assert.equal(meta.destinations, undefined, "new events carry NO destinations array in meta")
+const ingestRor = buildRunOnReady(meta)
+assert.ok(ingestRor.startsWith("sh -c "), "runOnReady wrapped in sh -c for real-shell semantics")
+assert.ok(ingestRor.includes(": " + META_PREFIX), "ingest runOnReady is a no-op metadata comment")
+assert.ok(!ingestRor.includes("ffmpeg "), "ingest path never runs ffmpeg")
+assert.deepEqual(parseRunOnReady(ingestRor), meta, "meta survives in no-op runOnReady")
+assert.equal(relayHasActiveCommand(), false, "ingest no-op must never auto-restart")
 
-/* runOnReady with enabled destinations -> ffmpeg tee ------------------- */
-meta.destinations.push(
-  { id: "d1", name: "FB", platform: "facebook", serverUrl: "rtmps://a/rtmp", streamKey: "k1", enabled: true },
-  { id: "d2", name: "YT", platform: "youtube", serverUrl: "rtmp://b/live", streamKey: "k2", enabled: false },
-  { id: "d3", name: "Custom", platform: "custom", serverUrl: "rtmp://c/app", streamKey: "k3", enabled: true },
+/* fan-out path naming + source ---------------------------------------- */
+assert.equal(fanoutPathName("evt", "d1"), `evt${FANOUT_SEPARATOR}d1`, "fan-out path name composed")
+assert.equal(isFanoutPathName("evt__fo__d1"), true, "fan-out name detected")
+assert.equal(isFanoutPathName("evt"), false, "plain ingest name not a fan-out")
+assert.equal(fanoutSourceUrl("evt"), "rtsp://localhost:8554/evt", "fan-out pulls the ingest over local rtsp")
+
+/* per-destination fan-out runOnReady (push to ONE destination) --------- */
+const destEnabled = { id: "d1", name: "FB", platform: "facebook", serverUrl: "rtmps://a/rtmp", streamKey: "k1", enabled: true, createdAt: "2026-01-01T00:00:00.000Z" }
+const destDisabled = { id: "d2", name: "YT", platform: "youtube", serverUrl: "rtmp://b/live", streamKey: "k2", enabled: false, createdAt: "2026-01-02T00:00:00.000Z" }
+
+const foRor = buildFanoutRunOnReady(destEnabled, { slug: "evt", relayEnabled: true })
+assert.ok(foRor.startsWith("sh -c "), "fan-out runOnReady wrapped in sh -c")
+assert.ok(foRor.includes("ffmpeg "), "enabled fan-out emits ffmpeg")
+assert.ok(foRor.includes("-c copy"), "fan-out is passthrough copy")
+assert.ok(foRor.includes("rtmps://a/rtmp/k1"), "pushes to the destination URL")
+assert.ok(foRor.includes("rtsp://localhost:8554/evt__fo__d1"), "reads the local fan-out copy")
+assert.deepEqual(
+  parseFanoutMeta(foRor),
+  { ...destEnabled, parentSlug: "evt", v: META_VERSION },
+  "destination meta (incl. parentSlug) survives in RELAY_FANOUT comment",
 )
-const ror = buildRunOnReady(meta)
-assert.ok(ror.startsWith("sh -c "), "fan-out wrapped in sh -c")
-assert.ok(ror.includes("ffmpeg "), "fan-out emits ffmpeg")
-assert.ok(ror.includes("-f tee "), "uses tee muxer")
-assert.ok(ror.includes("rtmps://a/rtmp/k1"), "includes enabled dest 1")
-assert.ok(ror.includes("rtmp://c/app/k3"), "includes enabled dest 3")
-assert.ok(!ror.includes("rtmp://b/live/k2"), "excludes disabled dest 2")
-assert.deepEqual(parseRunOnReady(ror), meta, "meta survives alongside ffmpeg command")
-assert.equal(relayHasActiveCommand(meta), true, "enabled destinations -> live ffmpeg, should auto-restart")
 
-/* public projection strips secrets ------------------------------------- */
-const pub = toPublicStatus(meta)
+const foDisabled = buildFanoutRunOnReady(destDisabled, { slug: "evt", relayEnabled: true })
+assert.ok(!foDisabled.includes("ffmpeg "), "disabled destination => no ffmpeg")
+assert.ok(foDisabled.includes(": " + FANOUT_PREFIX), "disabled destination still carries its meta as a no-op")
+assert.deepEqual(parseFanoutMeta(foDisabled), { ...destDisabled, parentSlug: "evt", v: META_VERSION }, "disabled dest meta recoverable")
+
+const foRelayOff = buildFanoutRunOnReady(destEnabled, { slug: "evt", relayEnabled: false })
+assert.ok(!foRelayOff.includes("ffmpeg "), "relay master off => no ffmpeg even if dest enabled")
+
+/* per-destination fan-out runOnNotReady (own slate fallback) ----------- */
+const foNotReady = buildFanoutRunOnNotReady(destEnabled, { type: "text", text: "Chờ chút", enabled: true }, { slug: "evt", relayEnabled: true })
+assert.ok(foNotReady.startsWith("sh -c "), "fan-out standby wrapped in sh -c")
+assert.ok(foNotReady.includes("ffprobe"), "standby monitors the ingest via ffprobe")
+assert.ok(foNotReady.includes("drawtext"), "text slate uses drawtext")
+assert.ok(foNotReady.includes("rtmps://a/rtmp/k1"), "standby tees to its own destination")
+assert.ok(foNotReady.includes("rtsp://localhost:8554/evt"), "standby probes the ingest path")
+assert.equal(
+  buildFanoutRunOnNotReady(destEnabled, { type: "none" }, { slug: "evt", relayEnabled: true }),
+  "",
+  "no fallback => no standby",
+)
+assert.equal(
+  buildFanoutRunOnNotReady(destDisabled, { type: "text", text: "x", enabled: true }, { slug: "evt", relayEnabled: true }),
+  "",
+  "disabled destination => no standby",
+)
+assert.equal(
+  buildFanoutRunOnNotReady(destEnabled, { type: "text", text: "x", enabled: true }, { slug: "evt", relayEnabled: false }),
+  "",
+  "relay master off => no standby",
+)
+
+/* public projection strips secrets (destinations passed in) ------------ */
+const pubDests = [destEnabled, destDisabled, { id: "d3", name: "Custom", platform: "custom", serverUrl: "rtmp://c/app", streamKey: "k3", enabled: true }]
+const pub = toPublicStatus(meta, pubDests)
 assert.equal(pub.displayName, "Nguyễn Cao Nguyên")
 assert.equal(pub.destinations.length, 3)
 assert.equal(pub.destinations[0].maskedKey, maskKey("k1"))
 assert.ok(!JSON.stringify(pub).includes("k1"), "raw key never leaks in public projection")
 assert.ok(!("loginCode" in pub), "login hash not exposed")
+assert.deepEqual(toPublicStatus(meta).destinations, [], "no destinations arg => empty list")
 
 /* parseRunOnReady ignores non-meta strings ----------------------------- */
 assert.equal(parseRunOnReady("ffmpeg -i x -c copy out.flv"), null)
@@ -136,14 +185,14 @@ assert.equal(verifySessionToken(sess, cfgToken, "wrong-secret"), false, "wrong s
 assert.equal(verifySessionToken("garbage", cfgToken, secret), false, "garbage rejected")
 assert.equal(verifySessionToken(createSessionToken(cfgToken, secret, -1000), cfgToken, secret), false, "expired rejected")
 
-/* relayEnabled gate ----------------------------------------------------- */
+/* relayEnabled stays in ingest meta; ingest runOnReady remains a no-op -- */
 const relayOff = setMetaRelayEnabled(meta, false)
+assert.equal(relayOff.relayEnabled, false, "relay master flag persisted in meta")
 const offRor = buildRunOnReady(relayOff)
-assert.ok(!offRor.includes("ffmpeg "), "relay off -> no ffmpeg even with enabled dests")
-assert.equal(relayHasActiveCommand(relayOff), false, "relay off -> no-op, must not auto-restart")
+assert.ok(!offRor.includes("ffmpeg "), "ingest runOnReady is always a no-op regardless of relay flag")
 assert.deepEqual(parseRunOnReady(offRor), relayOff, "meta survives when relay off")
 const relayOn = setMetaRelayEnabled(meta, true)
-assert.ok(buildRunOnReady(relayOn).includes("ffmpeg "), "relay on -> ffmpeg")
+assert.equal(relayOn.relayEnabled, true, "relay master flag toggles back on")
 
 /* login code mutation --------------------------------------------------- */
 const changed = setMetaLoginCode(meta, "newSecret123")
@@ -222,9 +271,15 @@ const del = deleteMetaDestination(a2.meta, id1)
 assert.equal(del.destinations.length, 1, "destination removed")
 assert.equal(del.destinations[0].name, "YT", "the right one stays")
 
-/* fan-out still works after CRUD + relay enabled ----------------------- */
-const ror2 = buildRunOnReady({ ...a1.meta, relayEnabled: true })
-assert.ok(ror2.includes("rtmps://a/rtmp/k1"), "joined URL after CRUD")
+/* custom ingest path validation ---------------------------------------- */
+assert.deepEqual(validateCustomPath(""), { ok: true, value: "" }, "empty => auto-generate")
+assert.deepEqual(validateCustomPath("  "), { ok: true, value: "" }, "whitespace => auto-generate")
+assert.deepEqual(validateCustomPath("my-event_01"), { ok: true, value: "my-event_01" }, "alnum/_/- accepted")
+assert.equal(validateCustomPath("ab").ok, false, "too short rejected")
+assert.equal(validateCustomPath("has space").ok, false, "spaces rejected")
+assert.equal(validateCustomPath("bad/slash").ok, false, "slash rejected")
+assert.equal(validateCustomPath("evt__fo__d1").ok, false, "fan-out namespace reserved")
+assert.equal(validateCustomPath("x".repeat(65)).ok, false, "over 64 chars rejected")
 
 /* status / config token rotation -------------------------------------- */
 const rotS = rotateMetaStatusToken(base)

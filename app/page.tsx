@@ -336,7 +336,18 @@ function MediaMTXDashboard() {
   }, [fetchPaths])
 
   const handleEditPath = async (path: PathConfig) => {
-    setEditingPath(path)
+    // Open with the freshest server config, not the (possibly stale) list
+    // snapshot. Flags like `record` can be toggled elsewhere (e.g. the public
+    // config page); editing from a stale snapshot would PATCH the old value
+    // back and silently stop a running recording.
+    let initial = path
+    try {
+      const fresh = await api.getPathConfig(path.name)
+      if (fresh) initial = { ...path, ...fresh }
+    } catch {
+      // Fall back to the list snapshot if the live fetch fails.
+    }
+    setEditingPath(initial)
     setIsEditDialogOpen(true)
   }
 
