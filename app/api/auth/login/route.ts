@@ -1,5 +1,4 @@
 import { createBasicAuthCredential, DashboardLoginError } from "@/lib/auth"
-import { buildMediaMtxApiUrl } from "@/lib/mediamtx-url.mjs"
 import {
   COOKIE_NAME,
   createServerSession,
@@ -75,10 +74,12 @@ export async function POST(request: Request) {
 
     let response: Response
     try {
-      const apiUrl = buildMediaMtxApiUrl("/v3/config/global/get")
-      const upstreamUrl = apiUrl.startsWith("http")
-        ? apiUrl
-        : new URL(apiUrl, request.url).toString()
+      const upstreamBase =
+        process.env.MEDIAMTX_API_URL ||
+        process.env.NEXT_PUBLIC_MEDIAMTX_SERVER_API_URL ||
+        process.env.NEXT_PUBLIC_MEDIAMTX_API_URL ||
+        "http://localhost:9997"
+      const upstreamUrl = `${upstreamBase.replace(/\/+$/, "")}/v3/config/global/get`
       response = await fetch(
         upstreamUrl,
         {
