@@ -23,6 +23,7 @@ import type { DashboardAuditEvent } from "@/lib/dashboard-audit"
 import * as api from "@/lib/mediamtx-api"
 import type { PathConf } from "@/lib/mediamtx-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
+import { copyToClipboard } from "@/lib/clipboard"
 import {
   exportDefaultsAsJson,
   exportDefaultsAsYaml,
@@ -94,13 +95,15 @@ export function PathDefaultsImportExport({
     notify({ type: "success", title: "Đã export YAML", message: "path-defaults.yaml" })
   }, [pathDefaults, notify])
 
-  const handleCopyJson = useCallback(() => {
+  const handleCopyJson = useCallback(async () => {
     if (!pathDefaults) return
     const json = exportDefaultsAsJson(pathDefaults, true)
-    navigator.clipboard.writeText(json).then(
-      () => notify({ type: "success", title: "Đã copy JSON", message: "Path defaults copied to clipboard" }),
-      () => notify({ type: "error", title: "Không thể copy", message: "Clipboard API không khả dụng" }),
-    )
+    const ok = await copyToClipboard(json)
+    if (ok) {
+      notify({ type: "success", title: "Đã copy JSON", message: "Path defaults copied to clipboard" })
+    } else {
+      notify({ type: "error", title: "Không thể copy", message: "Clipboard API không khả dụng" })
+    }
   }, [pathDefaults, notify])
 
   const handlePreviewImport = useCallback(() => {

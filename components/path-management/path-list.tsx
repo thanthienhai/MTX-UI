@@ -26,6 +26,7 @@ import type { PathConf, Path } from "@/lib/mediamtx-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 import { buildPathStreamUrls } from "@/lib/mediamtx-url.mjs"
 import { mergeConfiguredAndRuntimePaths, type MergedPathRow } from "@/lib/path-management.mjs"
+import { copyToClipboard } from "@/lib/clipboard"
 
 interface PathListProps {
   configuredPaths: PathConf[]
@@ -74,14 +75,16 @@ export function PathList({
   }, [onRefresh])
 
   const handleCopyUrl = useCallback(
-    (pathName: string, protocol: string) => {
+    async (pathName: string, protocol: string) => {
       const urls = buildPathStreamUrls(pathName)
       const url = urls[protocol as keyof typeof urls]
       if (url) {
-        navigator.clipboard.writeText(url).then(
-          () => notify({ type: "success", title: "Đã copy URL", message: `${protocol}: ${url}` }),
-          () => notify({ type: "error", title: "Không thể copy URL", message: "Clipboard không khả dụng" }),
-        )
+        const ok = await copyToClipboard(url)
+        if (ok) {
+          notify({ type: "success", title: "Đã copy URL", message: `${protocol}: ${url}` })
+        } else {
+          notify({ type: "error", title: "Không thể copy URL", message: "Clipboard không khả dụng" })
+        }
       }
     },
     [notify],

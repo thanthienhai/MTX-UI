@@ -32,6 +32,7 @@ import * as api from "@/lib/mediamtx-api"
 import type { Path, PathReader, KickResolution } from "@/lib/mediamtx-api"
 import { requireMediaMtxAction, type MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 import { buildPathStreamUrls, isRegexPathName, isAllOthersPathName } from "@/lib/mediamtx-url.mjs"
+import { copyToClipboard } from "@/lib/clipboard"
 
 interface PathActionsProps {
   pathName: string
@@ -83,15 +84,17 @@ export function PathActions({
   }, [runtimePath])
 
   const handleCopyUrl = useCallback(
-    (protocol: string, url: string | null) => {
+    async (protocol: string, url: string | null) => {
       if (!url) {
         notify({ type: "error", title: "URL không khả dụng", message: `Protocol ${protocol} chưa được cấu hình` })
         return
       }
-      navigator.clipboard.writeText(url).then(
-        () => notify({ type: "success", title: "Đã copy URL", message: `${PROTOCOL_LABELS[protocol] || protocol}: ${url}` }),
-        () => notify({ type: "error", title: "Không thể copy URL", message: "Clipboard không khả dụng" }),
-      )
+      const ok = await copyToClipboard(url)
+      if (ok) {
+        notify({ type: "success", title: "Đã copy URL", message: `${PROTOCOL_LABELS[protocol] || protocol}: ${url}` })
+      } else {
+        notify({ type: "error", title: "Không thể copy URL", message: "Clipboard không khả dụng" })
+      }
     },
     [notify],
   )

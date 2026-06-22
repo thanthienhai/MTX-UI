@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Copy, Save, AlertTriangle, Info } from "lucide-react"
+import { copyToClipboard } from "@/lib/clipboard"
 import { useNotifications } from "@/components/notification-provider"
 import type { MediaMtxPermissionSet } from "@/lib/mediamtx-permissions"
 
@@ -48,12 +49,12 @@ export function RemoteUploadConfig({ permissions }: RemoteUploadConfigProps) {
   }, [command, notify])
 
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(command)
+    const ok = await copyToClipboard(command)
+    if (ok) {
       setIsCopied(true)
       notify({ type: "success", title: "Đã sao chép", message: "Command đã được sao chép vào clipboard." })
       setTimeout(() => setIsCopied(false), 2000)
-    } catch {
+    } else {
       notify({ type: "error", title: "Không thể sao chép", message: "Trình duyệt không hỗ trợ sao chép." })
     }
   }, [command, notify])

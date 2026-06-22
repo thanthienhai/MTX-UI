@@ -9,7 +9,10 @@ interface WHEPPlayerProps {
 }
 
 export function WHEPPlayer({ pathName, className }: WHEPPlayerProps) {
-  const whepUrl = buildMediaMtxWebRtcReadUrl(pathName)
+  const rawUrl = buildMediaMtxWebRtcReadUrl(pathName)
+  const whepUrl = typeof window !== "undefined" && window.location.protocol === "https:"
+    ? rawUrl.replace(/^http:/, "https:")
+    : rawUrl
 
   const {
     videoRef,

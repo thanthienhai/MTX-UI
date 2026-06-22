@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { CheckCircle2, Copy, Download, Eye, EyeOff, Play, RefreshCw, VideoIcon, X } from "lucide-react"
+import { copyToClipboard } from "@/lib/clipboard"
 import { LoadingState, ErrorState, EmptyState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -480,14 +481,14 @@ function PlaybackBrowser({
   const handleCopyUrl = async () => {
     if (!selectedSegment) return
     const url = buildPlaybackSegmentUrl({ path: selectedPath, start: selectedSegment.start, format: "fmp4" })
-    try {
-      await navigator.clipboard.writeText(window.location.origin + url)
+    const ok = await copyToClipboard(window.location.origin + url)
+    if (ok) {
       notify({
         type: "success",
         title: "Đã sao chép URL playback",
         message: "URL chỉ mở được khi đính kèm Authorization từ session đăng nhập.",
       })
-    } catch {
+    } else {
       notify({ type: "error", title: "Không thể sao chép URL" })
     }
   }

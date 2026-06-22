@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Copy, BookOpen } from "lucide-react"
+import { copyToClipboard } from "@/lib/clipboard"
 import { useNotifications } from "@/components/notification-provider"
 import {
   buildMediaMtxHlsUrl,
@@ -45,6 +46,7 @@ interface GuideCtx {
   rtpPort: string
   publishUser?: string
   publishPass?: string
+  protocol: string
 }
 
 function withCreds(url: string, user?: string, pass?: string) {
@@ -66,15 +68,15 @@ function rtmpUrl(ctx: GuideCtx, withAuth = false) {
 }
 
 function hlsUrl(ctx: GuideCtx) {
-  return `http://${ctx.host}:${ctx.hlsPort}/${encodeURIComponent(ctx.path)}/index.m3u8`
+  return `${ctx.protocol}//${ctx.host}:${ctx.hlsPort}/${encodeURIComponent(ctx.path)}/index.m3u8`
 }
 
 function whepUrl(ctx: GuideCtx) {
-  return `http://${ctx.host}:${ctx.webrtcPort}/${encodeURIComponent(ctx.path)}/whep`
+  return `${ctx.protocol}//${ctx.host}:${ctx.webrtcPort}/${encodeURIComponent(ctx.path)}/whep`
 }
 
 function whipUrl(ctx: GuideCtx) {
-  return `http://${ctx.host}:${ctx.webrtcPort}/${encodeURIComponent(ctx.path)}/whip`
+  return `${ctx.protocol}//${ctx.host}:${ctx.webrtcPort}/${encodeURIComponent(ctx.path)}/whip`
 }
 
 function srtUrl(ctx: GuideCtx, mode: "publish" | "read") {
@@ -438,15 +440,15 @@ export function GuidesView({ pathSuggestions = [] }: GuidesViewProps) {
   const [publishPass, setPublishPass] = useState("")
 
   const ctx: GuideCtx = useMemo(
-    () => ({ path: path.trim() || "stream", host, rtspPort, rtmpPort, hlsPort, webrtcPort, srtPort, rtpPort, publishUser: publishUser || undefined, publishPass: publishPass || undefined }),
+    () => ({ path: path.trim() || "stream", host, rtspPort, rtmpPort, hlsPort, webrtcPort, srtPort, rtpPort, publishUser: publishUser || undefined, publishPass: publishPass || undefined, protocol: typeof window !== "undefined" ? window.location.protocol : "http:" }),
     [path, host, rtspPort, rtmpPort, hlsPort, webrtcPort, srtPort, rtpPort, publishUser, publishPass],
   )
 
   async function copy(code: string) {
-    try {
-      await navigator.clipboard.writeText(code)
+    const ok = await copyToClipboard(code)
+    if (ok) {
       notify({ type: "success", title: "Đã sao chép" })
-    } catch {
+    } else {
       notify({ type: "error", title: "Không sao chép được", message: "Trình duyệt từ chối clipboard." })
     }
   }
