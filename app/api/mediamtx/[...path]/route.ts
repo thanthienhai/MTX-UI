@@ -36,6 +36,19 @@ function extractCookie(cookieHeader: string, name: string): string | null {
   return null
 }
 
+function resolveAuthHeader(request: Request): string | null {
+  const cookieHeader = request.headers.get("cookie") || ""
+  const sessionId = extractCookie(cookieHeader, COOKIE_NAME)
+  if (sessionId) {
+    const session = getServerSession(sessionId)
+    if (session) {
+      return session.credentialMode === "bearer" ? `Bearer ${session.credential}` : `Basic ${session.credential}`
+    }
+  }
+  const auth = request.headers.get("authorization")
+  return auth || null
+}
+
 function buildProxyHeaders(request: Request, authHeader: string | null) {
   const headers = new Headers()
 
