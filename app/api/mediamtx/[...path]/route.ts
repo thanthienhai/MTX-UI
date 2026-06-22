@@ -1,3 +1,5 @@
+import { COOKIE_NAME, getServerSession } from "@/lib/server-session"
+
 const DEFAULT_UPSTREAM_API_URL = "http://localhost:9997"
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -23,14 +25,29 @@ function normalizeUpstreamApiUrl() {
   return configuredUrl.trim().replace(/\/+$/, "").replace(/\/v3\/config$/i, "").replace(/\/v3$/i, "")
 }
 
-function proxyHeaders(request: Request) {
+function extractCookie(cookieHeader: string, name: string): string | null {
+  if (!cookieHeader) return null
+  for (const part of cookieHeader.split(";")) {
+    const trimmed = part.trim()
+    if (trimmed.startsWith(`${name}=`)) {
+      return trimmed.slice(name.length + 1)
+    }
+  }
+  return null
+}
+
+function buildProxyHeaders(request: Request, authHeader: string | null) {
   const headers = new Headers()
 
-  for (const header of ["accept", "authorization", "content-type"]) {
+  for (const header of ["accept", "content-type"]) {
     const value = request.headers.get(header)
     if (value) {
       headers.set(header, value)
     }
+  }
+
+  if (authHeader) {
+    headers.set("authorization", authHeader)
   }
 
   return headers
@@ -53,9 +70,10 @@ async function proxyMediaMtxRequest(request: Request, context: { params: Promise
   upstreamUrl.search = incomingUrl.search
 
   const method = request.method.toUpperCase()
+  const authHeader = resolveAuthHeader(request)
   const response = await fetch(upstreamUrl, {
     method,
-    headers: proxyHeaders(request),
+    headers: buildProxyHeaders(request, authHeader),
     body: method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer(),
     cache: "no-store",
   })

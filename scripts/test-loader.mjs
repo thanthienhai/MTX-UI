@@ -11,18 +11,35 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const EXTS = ["", ".ts", ".mjs", ".js", ".tsx", ".mts", ".cts"]
 
 export async function resolve(specifier, context, nextResolve) {
+  // Resolve @/ aliases first.
   if (specifier.startsWith("@/")) {
     const rel = specifier.slice(2)
     const base = path.resolve(ROOT, rel)
-    // Try the path as-is first, then with TS/MJS/JS extensions.
     for (const ext of EXTS) {
       const candidate = base + ext
       if (existsSync(candidate)) {
         return nextResolve(pathToFileURL(candidate).href, context)
       }
     }
-    // Fall back to letting Node fail with a clear path.
     return nextResolve(pathToFileURL(base).href, context)
   }
+
+  // For relative/absolute specifiers without an extension, try adding .ts
+  // so that TypeScript source files can be imported without the extension
+  // (which is the standard TS convention).
+  if (
+    (specifier.startsWith(".") || specifier.startsWith("/")) &&
+    !path.extname(specifier) &&
+    !specifier.startsWith("node:")
+  ) {
+    const base = path.resolve(path.dirname(fileURLToPath(context.parentURL ?? `file://${process.cwd()}/`)), specifier)
+    for (const ext of EXTS) {
+      const candidate = base + ext
+      if (existsSync(candidate)) {
+        return nextResolve(pathToFileURL(candidate).href, context)
+      }
+    }
+  }
+
   return nextResolve(specifier, context)
 }

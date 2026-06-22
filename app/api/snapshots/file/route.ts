@@ -12,7 +12,7 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 export async function GET(request: Request) {
-  if (!isAuthenticated(request)) {
+  if (!(await isAuthenticated(request))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
 

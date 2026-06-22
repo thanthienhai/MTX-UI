@@ -11,7 +11,7 @@ function resolveAllowedLogFile(): string | null {
 }
 
 export async function GET(request: Request) {
-  if (!isAuthenticated(request)) {
+  if (!(await isAuthenticated(request))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
 

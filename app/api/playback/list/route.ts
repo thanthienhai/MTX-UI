@@ -1,4 +1,4 @@
-import { requireDashboardAuth, unauthorizedResponse } from "@/lib/server-auth"
+import { resolveCredential, unauthorizedResponse } from "@/lib/server-auth"
 
 const DEFAULT_PLAYBACK_URL = "http://localhost:9996"
 
@@ -12,7 +12,7 @@ function normalizePlaybackUrl() {
 }
 
 export async function GET(request: Request) {
-  const cred = requireDashboardAuth(request)
+  const cred = await resolveCredential(request)
   if (!cred) return unauthorizedResponse()
 
   const { searchParams } = new URL(request.url)

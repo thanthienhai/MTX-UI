@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Plus, Copy, ExternalLink, Trash2, KeyRound, RefreshCw } from "lucide-react"
-import { getAuthHeader } from "@/lib/auth"
+import { copyToClipboard } from "@/lib/clipboard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -71,7 +71,6 @@ export function RelayEventsAdmin() {
   const loadEvents = useCallback(async () => {
     try {
       const res = await fetch(`${basePath()}/api/relay/events`, {
-        headers: { Authorization: getAuthHeader() },
         cache: "no-store",
       })
       const body = await res.json().catch(() => ({}))
@@ -98,7 +97,7 @@ export function RelayEventsAdmin() {
     try {
       const res = await fetch(`${basePath()}/api/relay/events`, {
         method: "POST",
-        headers: { "content-type": "application/json", Authorization: getAuthHeader() },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ displayName: name.trim(), quota, path: customPath.trim() }),
       })
       const body = await res.json().catch(() => ({}))
@@ -232,7 +231,6 @@ function EventRow({ ev, onChanged }: { ev: AdminEventRow; onChanged: () => void 
     try {
       const res = await fetch(`${basePath()}/api/relay/events/${encodeURIComponent(ev.pathKey)}/reset-code`, {
         method: "POST",
-        headers: { Authorization: getAuthHeader() },
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -254,7 +252,6 @@ function EventRow({ ev, onChanged }: { ev: AdminEventRow; onChanged: () => void 
     try {
       const res = await fetch(`${basePath()}/api/relay/events/${encodeURIComponent(ev.pathKey)}`, {
         method: "DELETE",
-        headers: { Authorization: getAuthHeader() },
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -344,8 +341,9 @@ function MiniCopy({ label, value, openable }: { label: string; value: string; op
           size="sm"
           variant="ghost"
           className="h-7 px-2"
-          onClick={() => {
-            navigator.clipboard?.writeText(value)
+          onClick={async () => {
+            const ok = await copyToClipboard(value)
+            if (!ok) return
             setCopied(true)
             setTimeout(() => setCopied(false), 1500)
           }}
@@ -394,8 +392,9 @@ function CopyField({
         <Button
           size="sm"
           variant="secondary"
-          onClick={() => {
-            navigator.clipboard?.writeText(value)
+          onClick={async () => {
+            const ok = await copyToClipboard(value)
+            if (!ok) return
             setCopied(true)
             setTimeout(() => setCopied(false), 1500)
           }}

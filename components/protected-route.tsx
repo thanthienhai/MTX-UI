@@ -4,17 +4,31 @@ import type React from "react"
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { isAuthenticated } from "@/lib/auth"
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push("/login")
-    } else {
-      setIsLoading(false)
+    let cancelled = false
+
+    async function checkAuth() {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" })
+        if (!res.ok) {
+          if (!cancelled) router.push("/login")
+          return
+        }
+        if (!cancelled) setIsLoading(false)
+      } catch {
+        if (!cancelled) router.push("/login")
+      }
+    }
+
+    checkAuth()
+
+    return () => {
+      cancelled = true
     }
   }, [router])
 

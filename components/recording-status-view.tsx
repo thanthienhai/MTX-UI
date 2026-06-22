@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Play, Trash2, RefreshCw } from "lucide-react"
+import { Play, Trash2, RefreshCw, Timer } from "lucide-react"
+import { RecordingTimer } from "@/components/recording-timer"
 import { EmptyState, ErrorState, LoadingState } from "@/components/module-state"
 import { useNotifications } from "@/components/notification-provider"
 import * as api from "@/lib/mediamtx-api"
@@ -279,17 +280,26 @@ export function RecordingStatusView({ permissions, username, appendAuditEvent, p
                       </div>
 
                       {segments.length > 0 && (
-                        <div className="ml-12 grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
-                          <div>
-                            <span className="text-gray-500">Segment mới nhất: </span>
-                            <span className="font-medium">{segStart ? formatTime(segStart) : "N/A"}</span>
-                            {segDuration > 0 && <span className="text-gray-500"> ({formatDuration(segDuration)})</span>}
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Dung lượng ước tính: </span>
-                            <span className="font-medium">{estimatedSize}</span>
-                            <span className="text-xs text-gray-400 ml-1">(*)</span>
-                          </div>
+                          <div className="ml-12 grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
+                            <div>
+                              <span className="text-gray-500">Segment mới nhất: </span>
+                              <span className="font-medium">{segStart ? formatTime(segStart) : "N/A"}</span>
+                              {segDuration > 0 && <span className="text-gray-500"> ({formatDuration(segDuration)})</span>}
+                            </div>
+                            {status.isRecording && segStart && (
+                              <div>
+                                <span className="text-gray-500 inline-flex items-center gap-1">
+                                  <Timer className="h-3.5 w-3.5 text-red-500" />
+                                  Thời gian ghi:
+                                </span>
+                                <RecordingTimer startedAt={segStart} className="font-medium text-red-600 ml-1" />
+                              </div>
+                            )}
+                            <div>
+                              <span className="text-gray-500">Dung lượng ước tính: </span>
+                              <span className="font-medium">{estimatedSize}</span>
+                              <span className="text-xs text-gray-400 ml-1">(*)</span>
+                            </div>
                           <div>
                             <span className="text-gray-500">Giữ lại: </span>
                             {ret.isConfigured ? (

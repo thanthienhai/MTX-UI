@@ -11,8 +11,8 @@ for (const field of ["method", "endpoint", "status", "statusText", "body", "rawB
 }
 
 for (const expected of [
-  "getAuthHeader()",
-  "headers.set(\"Authorization\"",
+  // Auth now handled via HttpOnly cookie — the proxy injects the
+  // Authorization header server-side. No client-side auth headers.
   "headers.set(\"Content-Type\", \"application/json\")",
   "JSON.stringify(options.body)",
   "JSON.parse(rawBody)",

@@ -1,7 +1,7 @@
 import { deleteSnapshot, isAuthenticated } from "@/lib/snapshot-utils"
 
 export async function POST(request: Request) {
-  if (!isAuthenticated(request)) {
+  if (!(await isAuthenticated(request))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
 

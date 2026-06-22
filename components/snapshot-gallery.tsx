@@ -12,11 +12,8 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ImageIcon, Download, Trash2, Camera, RefreshCw, Loader2 } from "lucide-react"
-import { getAuthHeader } from "@/lib/auth"
-
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const auth = getAuthHeader()
-  return auth ? { ...extra, Authorization: auth } : extra
+  return extra
 }
 
 interface Snapshot {

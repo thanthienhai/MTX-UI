@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
-import { getAuthHeader } from "@/lib/auth"
-
 interface SnapshotThumbnailProps {
   pathName: string
 }
@@ -19,13 +17,8 @@ export function SnapshotThumbnail({ pathName }: SnapshotThumbnailProps) {
     async function fetchThumbnail() {
       setLoading(true)
       try {
-        const auth = getAuthHeader()
-        const headers: Record<string, string> = auth ? { Authorization: auth } : {}
-
         // 1. Resolve latest snapshot URL
-        const latestRes = await fetch(`/api/snapshots/latest?path=${encodeURIComponent(pathName)}`, {
-          headers,
-        })
+        const latestRes = await fetch(`/api/snapshots/latest?path=${encodeURIComponent(pathName)}`)
         if (!latestRes.ok) {
           if (!cancelled) setThumbnailUrl(null)
           return
@@ -36,8 +29,7 @@ export function SnapshotThumbnail({ pathName }: SnapshotThumbnailProps) {
           return
         }
 
-        // 2. Fetch the image file with auth, materialize as object URL
-        const imgRes = await fetch(snapshot.url, { headers })
+        const imgRes = await fetch(snapshot.url)
         if (!imgRes.ok) {
           if (!cancelled) setThumbnailUrl(null)
           return

@@ -1,9 +1,15 @@
 import { createEvent, listEventsForAdmin, RelayValidationError } from "@/lib/relay-server"
-import { requireDashboardAuth, unauthorizedResponse } from "@/lib/server-auth"
+import { resolveCredential, unauthorizedResponse } from "@/lib/server-auth"
+
+async function authHeaderFromCred(request: Request): Promise<string | undefined> {
+  const cred = await resolveCredential(request)
+  if (!cred) return undefined
+  return cred.mode === "bearer" ? `Bearer ${cred.value}` : `Basic ${cred.value}`
+}
 
 /** Admin-only: list every relay event with live runtime for the dashboard. */
 export async function GET(request: Request) {
-  const cred = requireDashboardAuth(request)
+  const cred = await resolveCredential(request)
   if (!cred) return unauthorizedResponse()
   try {
     const events = await listEventsForAdmin()
@@ -22,7 +28,7 @@ export async function GET(request: Request) {
  * (only a salted hash is stored).
  */
 export async function POST(request: Request) {
-  const cred = requireDashboardAuth(request)
+  const cred = await resolveCredential(request)
   if (!cred) return unauthorizedResponse()
 
   let displayName = ""
@@ -41,7 +47,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Cần nhập tên sự kiện" }, { status: 400 })
   }
 
-  const authHeader = request.headers.get("authorization") ?? undefined
+  const authHeader = await authHeaderFromCred(request)
   try {
     const created = await createEvent({ displayName, quota, path }, authHeader)
     return Response.json(created, { status: 201 })

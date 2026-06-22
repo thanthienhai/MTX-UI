@@ -360,8 +360,17 @@ assert.ok(
 
 resetCalls()
 await server.setEventRecord(event, true)
-assert.equal(calls[0].method, "PATCH")
-assert.deepEqual(calls[0].body, { record: true }, "record toggle patches the record field only")
+const recPatch = calls.find((c) => c.method === "PATCH")!
+assert.ok(recPatch, "record toggle issues a PATCH")
+assert.equal(recPatch.body.record, true, "record field is set to true")
+assert.ok(
+  typeof recPatch.body.recordPath === "string" && (recPatch.body.recordPath as string).length > 0,
+  "recordPath is auto-set when missing",
+)
+assert.ok(
+  typeof recPatch.body.recordFormat === "string" && (recPatch.body.recordFormat as string).length > 0,
+  "recordFormat is auto-set when missing",
+)
 
 resetCalls()
 await server.setEventRelay(event, false)

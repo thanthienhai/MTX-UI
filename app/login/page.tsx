@@ -9,12 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertCircle } from "lucide-react"
 import { LOGO_SRC } from "@/lib/branding"
-import {
-  DashboardLoginError,
-  setDashboardSession,
-  validateMediaMtxLogin,
-  type DashboardCredentialMode,
-} from "@/lib/auth"
+import { setDashboardSession, type DashboardCredentialMode } from "@/lib/auth"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -31,20 +26,26 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      const { session } = await validateMediaMtxLogin({
-        credentialMode,
-        username,
-        password,
-        token,
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credentialMode, username, password, token }),
       })
-      setDashboardSession(session)
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Lỗi máy chủ." }))
+        throw new Error(data.error || `Máy chủ trả về mã ${res.status}`)
+      }
+
+      const data = await res.json()
+      setDashboardSession({
+        username: data.username || username,
+        permissions: data.permissions || {},
+        credentialMode,
+      })
       router.push("/")
     } catch (err) {
-      setError(
-        err instanceof DashboardLoginError
-          ? err.userMessage
-          : "Không thể kết nối MediaMTX hoặc xác thực thông tin đã nhập.",
-      )
+      setError(err instanceof Error ? err.message : "Không thể kết nối MediaMTX hoặc xác thực thông tin đã nhập.")
       console.error("Login error:", err)
     } finally {
       setIsLoading(false)

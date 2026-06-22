@@ -45,6 +45,8 @@ import {
   Code2,
   BookOpen,
   FileText,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 import { ProtectedRoute } from "@/components/protected-route"
 import { LOGO_SRC } from "@/lib/branding"
@@ -433,7 +435,8 @@ function MediaMTXDashboard() {
     }
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {})
     clearAuth()
     router.push("/login")
   }
@@ -750,8 +753,17 @@ function MediaMTXDashboard() {
     },
   ]
 
+  const [expandedPath, setExpandedPath] = useState<string | null>(null)
+  const [pathUrls, setPathUrls] = useState<Record<string, Record<string, string | null>>>({})
+
+  const togglePathDetails = useCallback((pathName: string) => {
+    setExpandedPath((prev) => (prev === pathName ? null : pathName))
+  }, [])
+
   const renderStreamRow = (path: PathConfig) => {
     const status = getPathStatus(path.name)
+    const livePath = livePaths.find((p) => p.name === path.name)
+    const urls = pathUrls[path.name] || {}
 
     return (
       <div
@@ -802,6 +814,15 @@ function MediaMTXDashboard() {
               size="icon"
               variant="outline"
               className="rounded-full"
+              onClick={() => togglePathDetails(path.name)}
+              title="Chi tiết path"
+            >
+              {expandedPath === path.name ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              className="rounded-full"
               onClick={() => {
                 setSelectedStreamPath(selectedStreamPath === path.name ? null : path.name)
                 setSelectedStreamPathWebRTC(null)
@@ -847,6 +868,51 @@ function MediaMTXDashboard() {
             </Button>
           </div>
         </div>
+
+        {expandedPath === path.name && (
+          <div className="border-t border-[#eef0f3] px-4 py-4 space-y-2 text-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+              {path.source && (
+                <>
+                  <div><span className="text-gray-500">Source URL:</span></div>
+                  <div className="font-mono text-xs break-all">{path.source}</div>
+                </>
+              )}
+              {path.sourceFingerprint && (
+                <>
+                  <div><span className="text-gray-500">Fingerprint:</span></div>
+                  <div className="font-mono text-xs break-all">{path.sourceFingerprint}</div>
+                </>
+              )}
+              {livePath?.tracks && livePath.tracks.length > 0 && (
+                <>
+                  <div><span className="text-gray-500">Tracks:</span></div>
+                  <div className="font-mono text-xs">{livePath.tracks.join(", ")}</div>
+                </>
+              )}
+              {livePath?.source?.type && (
+                <>
+                  <div><span className="text-gray-500">Source type:</span></div>
+                  <div className="font-mono text-xs">{livePath.source.type}</div>
+                </>
+              )}
+              <div><span className="text-gray-500">Source on demand:</span></div>
+              <div>{path.sourceOnDemand ? "Bật" : "Tắt"}</div>
+              <div><span className="text-gray-500">Max readers:</span></div>
+              <div>{path.maxReaders ?? "Không giới hạn"}</div>
+              <div><span className="text-gray-500">Record:</span></div>
+              <div className="flex items-center gap-2">
+                {path.record ? (
+                  <Badge className="bg-red-100 text-red-700 hover:bg-red-100 text-[11px]">Đang bật</Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-[11px]">Tắt</Badge>
+                )}
+                {path.recordPath && <span className="text-xs text-gray-500">{path.recordPath}</span>}
+              </div>
+            </div>
+          </div>
+        )}
+
         {selectedStreamPath === path.name && status.isLive && canPlayback && (
           <div className="border-t border-[#eef0f3] px-4 pb-4 pt-4">
             <StreamPlayer pathName={path.name} />

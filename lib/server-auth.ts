@@ -2,12 +2,12 @@
  * Server-side helpers to validate that an incoming Next.js Route Handler
  * request carries a MediaMTX dashboard session credential.
  *
- * The dashboard stores the session in browser sessionStorage, so it cannot
- * arrive as a server cookie. Clients MUST explicitly forward an
- * `Authorization` header (Basic or Bearer) on every request to internal
- * routes that need protection. This module only validates the *shape* of
- * the header — credential correctness is delegated to MediaMTX upstream
- * when the request is actually proxied.
+ * Credentials can arrive via:
+ * 1. `mtx_dashboard_session` HttpOnly cookie (preferred — secure, JS-inaccessible)
+ * 2. `Authorization` header (legacy fallback for backward compatibility)
+ *
+ * This module only validates the *shape* of the credential — correctness is
+ * delegated to MediaMTX upstream when the request is actually proxied.
  */
 
 export type CredentialMode = "basic" | "bearer"
@@ -62,4 +62,40 @@ export function requireDashboardAuth(request: Request): ParsedCredential | null 
  */
 export function unauthorizedResponse() {
   return Response.json({ error: "Unauthorized" }, { status: 401 })
+}
+
+// ---------------------------------------------------------------------------
+// Cookie-based session support
+// ---------------------------------------------------------------------------
+
+function extractCookie(cookieHeader: string, name: string): string | null {
+  if (!cookieHeader) return null
+  for (const part of cookieHeader.split(";")) {
+    const trimmed = part.trim()
+    if (trimmed.startsWith(`${name}=`)) {
+      return trimmed.slice(name.length + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * Resolve credential from a request, checking the server session cookie first,
+ * then falling back to the Authorization header.
+ *
+ * This lets us migrate gradually: old clients still sending Authorization work,
+ * while new clients rely on the HttpOnly cookie.
+ */
+export async function resolveCredential(request: Request): Promise<ParsedCredential | null> {
+  const { COOKIE_NAME, getServerSession } = await import("./server-session")
+
+  const cookieHeader = request.headers.get("cookie") || ""
+  const sessionId = extractCookie(cookieHeader, COOKIE_NAME)
+  const session = sessionId ? getServerSession(sessionId) : null
+
+  if (session) {
+    return { mode: session.credentialMode, value: session.credential }
+  }
+
+  return parseAuthorizationHeader(request.headers.get("authorization"))
 }

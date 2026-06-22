@@ -1,52 +1,25 @@
-import { buildMediaMtxApiUrl } from "./mediamtx-url.mjs"
-import {
-  MEDIAMTX_ACTIONS,
-  getDefaultMediaMtxPermissions,
-  normalizeMediaMtxPermissions,
-  type MediaMtxAction,
-  type MediaMtxPermissionSet,
-} from "./mediamtx-permissions"
-
 export type DashboardCredentialMode = "basic" | "bearer"
 export type LoginFailureCode = "connection" | "invalid_credentials" | "missing_api_permission" | "server_error"
 
+/**
+ * Client-side session metadata (no credential — stored in HttpOnly cookie).
+ *
+ * The actual credential lives in the server-side session store, keyed by
+ * the `mtx_dashboard_session` HttpOnly cookie. This interface holds only
+ * non-sensitive metadata for the UI (username, permissions, expiry).
+ */
 export interface DashboardSession {
-  version: 1
+  version: 2
   credentialMode: DashboardCredentialMode
   username?: string
-  credential: string
   issuedAt: number
   expiresAt: number
-  permissions: Record<MediaMtxAction, boolean>
-}
-
-export interface CreateDashboardSessionInput {
-  credentialMode: DashboardCredentialMode
-  username?: string
-  credential: string
-  permissions?: MediaMtxPermissionSet
-  now?: number
-  ttlMs?: number
-}
-
-export interface ValidateMediaMtxLoginInput {
-  credentialMode: DashboardCredentialMode
-  username?: string
-  password?: string
-  token?: string
-  ttlMs?: number
-  fetchImpl?: typeof fetch
-}
-
-export interface ValidateMediaMtxLoginResult {
-  session: DashboardSession
-  globalConfig: unknown
+  permissions: Record<string, boolean>
 }
 
 const DASHBOARD_SESSION_KEY = "mediamtx_dashboard_session"
 const LEGACY_AUTH_KEY = "mediamtx_auth"
 const LEGACY_USERNAME_KEY = "mediamtx_username"
-const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60 * 1000
 
 export class DashboardLoginError extends Error {
   code: LoginFailureCode
@@ -85,41 +58,52 @@ export const dashboardSessionStorageAdapter: DashboardSessionStorageAdapter = {
   },
 }
 
-function readLegacySession(now = Date.now()): DashboardSession | null {
-  const storage = getBrowserSessionStorage()
-  const credential = storage?.getItem(LEGACY_AUTH_KEY)
-  if (!credential) return null
-
-  return createDashboardSession({
-    credentialMode: "basic",
-    username: storage?.getItem(LEGACY_USERNAME_KEY) || undefined,
-    credential,
-    now,
-  })
-}
-
 function parseDashboardSession(raw: string | null): DashboardSession | null {
   if (!raw) return null
 
   try {
-    const parsed = JSON.parse(raw) as Partial<DashboardSession>
-    if (parsed.version !== 1) return null
-    if (parsed.credentialMode !== "basic" && parsed.credentialMode !== "bearer") return null
-    if (typeof parsed.credential !== "string" || !parsed.credential) return null
-    if (typeof parsed.issuedAt !== "number" || typeof parsed.expiresAt !== "number") return null
-
-    return {
-      version: 1,
-      credentialMode: parsed.credentialMode,
-      username: typeof parsed.username === "string" ? parsed.username : undefined,
-      credential: parsed.credential,
-      issuedAt: parsed.issuedAt,
-      expiresAt: parsed.expiresAt,
-      permissions: normalizeMediaMtxPermissions(parsed.permissions),
+    const parsed = JSON.parse(raw)
+    if (parsed.version === 2) {
+      if (parsed.credentialMode !== "basic" && parsed.credentialMode !== "bearer") return null
+      if (typeof parsed.issuedAt !== "number" || typeof parsed.expiresAt !== "number") return null
+      return {
+        version: 2,
+        credentialMode: parsed.credentialMode,
+        username: typeof parsed.username === "string" ? parsed.username : undefined,
+        issuedAt: parsed.issuedAt,
+        expiresAt: parsed.expiresAt,
+        permissions: normalizePermissions(parsed.permissions),
+      }
     }
+
+    // v1 sessions carried the credential — still readable for metadata,
+    // but the credential is no longer extractable from client.
+    if (parsed.version === 1) {
+      if (parsed.credentialMode !== "basic" && parsed.credentialMode !== "bearer") return null
+      if (typeof parsed.issuedAt !== "number" || typeof parsed.expiresAt !== "number") return null
+      return {
+        version: 2,
+        credentialMode: parsed.credentialMode,
+        username: typeof parsed.username === "string" ? parsed.username : undefined,
+        issuedAt: parsed.issuedAt,
+        expiresAt: parsed.expiresAt,
+        permissions: normalizePermissions(parsed.permissions),
+      }
+    }
+
+    return null
   } catch {
     return null
   }
+}
+
+function normalizePermissions(permissions: unknown): Record<string, boolean> {
+  if (!permissions || typeof permissions !== "object") return {}
+  const result: Record<string, boolean> = {}
+  for (const [key, value] of Object.entries(permissions)) {
+    if (typeof value === "boolean") result[key] = value
+  }
+  return result
 }
 
 export function createBasicAuthCredential(username: string, password: string) {
@@ -128,26 +112,19 @@ export function createBasicAuthCredential(username: string, password: string) {
   return Buffer.from(value, "utf8").toString("base64")
 }
 
-export function createDashboardSession({
-  credentialMode,
-  username,
-  credential,
-  permissions,
-  now = Date.now(),
-  ttlMs = DEFAULT_SESSION_TTL_MS,
-}: CreateDashboardSessionInput): DashboardSession {
-  return {
-    version: 1,
-    credentialMode,
-    username: username?.trim() || undefined,
-    credential,
+export function setDashboardSession(
+  payload: { username?: string; permissions: Record<string, boolean>; credentialMode: DashboardCredentialMode },
+  adapter = dashboardSessionStorageAdapter,
+) {
+  const now = Date.now()
+  const session: DashboardSession = {
+    version: 2,
+    credentialMode: payload.credentialMode,
+    username: payload.username?.trim() || undefined,
     issuedAt: now,
-    expiresAt: now + ttlMs,
-    permissions: normalizeMediaMtxPermissions(permissions),
+    expiresAt: now + 8 * 60 * 60 * 1000,
+    permissions: normalizePermissions(payload.permissions),
   }
-}
-
-export function setDashboardSession(session: DashboardSession, adapter = dashboardSessionStorageAdapter) {
   adapter.write(JSON.stringify(session))
   const storage = getBrowserSessionStorage()
   storage?.removeItem(LEGACY_AUTH_KEY)
@@ -155,10 +132,10 @@ export function setDashboardSession(session: DashboardSession, adapter = dashboa
 }
 
 export function getDashboardSession(adapter = dashboardSessionStorageAdapter, now = Date.now()): DashboardSession | null {
-  const session = parseDashboardSession(adapter.read()) || readLegacySession(now)
+  const session = parseDashboardSession(adapter.read())
   if (!session) return null
 
-  if (isSessionExpired(session, now)) {
+  if (session.expiresAt <= now) {
     clearAuth(adapter)
     return null
   }
@@ -177,67 +154,44 @@ export function clearAuth(adapter = dashboardSessionStorageAdapter) {
   storage?.removeItem(LEGACY_USERNAME_KEY)
 }
 
+/**
+ * Check if the client has a cached session. This is a fast client-side check
+ * that reads sessionStorage. For production-critical auth, always validate
+ * via GET /api/auth/me (which checks the HttpOnly cookie server-side).
+ */
 export function isAuthenticated(): boolean {
   return getDashboardSession() !== null
-}
-
-export function getAuthToken(): string | null {
-  return getDashboardSession()?.credential ?? null
 }
 
 export function getUsername(): string | null {
   return getDashboardSession()?.username ?? null
 }
 
-export function setAuthToken(token: string, username: string) {
-  setDashboardSession(createDashboardSession({ credentialMode: "basic", username, credential: token }))
+/**
+ * @deprecated Auth is now handled via HttpOnly cookie.
+ * This function always returns empty string on the client.
+ * The server proxy injects the Authorization header from the session cookie.
+ */
+export function getAuthHeader(): string {
+  return ""
 }
 
-export function getAuthHeader(session = getDashboardSession()): string {
-  if (!session) return ""
-  return session.credentialMode === "bearer" ? `Bearer ${session.credential}` : `Basic ${session.credential}`
+/**
+ * @deprecated Auth is now handled via HttpOnly cookie.
+ * This function always returns null on the client.
+ */
+export function getAuthToken(): string | null {
+  return null
 }
 
 export function getSessionPermissions(session = getDashboardSession()) {
-  return session?.permissions ?? getDefaultMediaMtxPermissions()
+  return session?.permissions ?? {}
 }
 
-function classifyLoginFailure(status: number): { code: LoginFailureCode; message: string } {
-  if (status === 401) {
-    return { code: "invalid_credentials", message: "Tên đăng nhập, mật khẩu hoặc token MediaMTX không hợp lệ." }
-  }
-
-  if (status === 403) {
-    return { code: "missing_api_permission", message: "Tài khoản đã xác thực nhưng chưa có quyền MediaMTX `api`." }
-  }
-
-  return { code: "server_error", message: `MediaMTX từ chối kiểm tra đăng nhập (${status}).` }
-}
-
-function resolvePermissionsFromGlobalConfig(globalConfig: unknown, username?: string): MediaMtxPermissionSet {
-  if (!username || !globalConfig || typeof globalConfig !== "object") return getDefaultMediaMtxPermissions()
-
-  const users = (globalConfig as { authInternalUsers?: unknown }).authInternalUsers
-  if (!Array.isArray(users)) return getDefaultMediaMtxPermissions()
-
-  const user = users.find((item) => item && typeof item === "object" && (item as { user?: unknown }).user === username)
-  const permissions = user && typeof user === "object" ? (user as { permissions?: unknown }).permissions : null
-  if (!Array.isArray(permissions)) return getDefaultMediaMtxPermissions()
-
-  const resolved: MediaMtxPermissionSet = {}
-  for (const action of MEDIAMTX_ACTIONS) resolved[action] = false
-
-  for (const permission of permissions) {
-    if (!permission || typeof permission !== "object") continue
-    const action = (permission as { action?: unknown }).action
-    if (typeof action === "string" && MEDIAMTX_ACTIONS.includes(action as MediaMtxAction)) {
-      resolved[action as MediaMtxAction] = true
-    }
-  }
-
-  return resolved
-}
-
+/**
+ * Server-side login validation (used by /api/auth/login route handler).
+ * Returns the credential string for server session storage.
+ */
 export async function validateMediaMtxLogin({
   credentialMode,
   username,
@@ -245,7 +199,21 @@ export async function validateMediaMtxLogin({
   token,
   ttlMs,
   fetchImpl = fetch,
-}: ValidateMediaMtxLoginInput): Promise<ValidateMediaMtxLoginResult> {
+}: {
+  credentialMode: DashboardCredentialMode
+  username?: string
+  password?: string
+  token?: string
+  ttlMs?: number
+  fetchImpl?: typeof fetch
+}): Promise<{
+  credential: string
+  permissions: Record<string, boolean>
+  globalConfig: unknown
+}> {
+  const { buildMediaMtxApiUrl } = await import("./mediamtx-url.mjs")
+  const { MEDIAMTX_ACTIONS } = await import("./mediamtx-permissions")
+
   const credential =
     credentialMode === "basic" ? createBasicAuthCredential(username || "", password || "") : (token || "").trim()
 
@@ -289,7 +257,7 @@ export async function validateMediaMtxLogin({
     throw new DashboardLoginError(failure.code, failure.message, response.status)
   }
 
-  const permissions = normalizeMediaMtxPermissions(resolvePermissionsFromGlobalConfig(globalConfig, username))
+  const permissions = resolvePermissionsFromGlobalConfig(globalConfig, username)
   if (permissions.api === false) {
     throw new DashboardLoginError(
       "missing_api_permission",
@@ -298,14 +266,45 @@ export async function validateMediaMtxLogin({
     )
   }
 
-  return {
-    globalConfig,
-    session: createDashboardSession({
-      credentialMode,
-      username,
-      credential,
-      permissions,
-      ttlMs,
-    }),
+  return { credential, permissions, globalConfig }
+}
+
+function classifyLoginFailure(status: number): { code: LoginFailureCode; message: string } {
+  if (status === 401) {
+    return { code: "invalid_credentials", message: "Tên đăng nhập, mật khẩu hoặc token MediaMTX không hợp lệ." }
   }
+  if (status === 403) {
+    return { code: "missing_api_permission", message: "Tài khoản đã xác thực nhưng chưa có quyền MediaMTX `api`." }
+  }
+  return { code: "server_error", message: `MediaMTX từ chối kiểm tra đăng nhập (${status}).` }
+}
+
+function resolvePermissionsFromGlobalConfig(globalConfig: unknown, username?: string): Record<string, boolean> {
+  if (!username || !globalConfig || typeof globalConfig !== "object") return {}
+  const users = (globalConfig as { authInternalUsers?: unknown }).authInternalUsers
+  if (!Array.isArray(users)) return {}
+
+  const user = users.find(
+    (item) => item && typeof item === "object" && (item as { user?: unknown }).user === username,
+  )
+  const permissions = user && typeof user === "object" ? (user as { permissions?: unknown }).permissions : null
+  if (!Array.isArray(permissions)) return {}
+
+  const resolved: Record<string, boolean> = {}
+  const { MEDIAMTX_ACTIONS } = { MEDIAMTX_ACTIONS: ["api", "metrics", "pprof", "publish", "read", "playback"] }
+  for (const action of MEDIAMTX_ACTIONS) resolved[action] = false
+
+  for (const permission of permissions) {
+    if (!permission || typeof permission !== "object") continue
+    const action = (permission as { action?: unknown }).action
+    if (typeof action === "string" && MEDIAMTX_ACTIONS.includes(action)) {
+      resolved[action] = true
+    }
+  }
+
+  return resolved
+}
+
+function createDashboardSession() {
+  throw new Error("createDashboardSession is removed. Use setDashboardSession with metadata only.")
 }

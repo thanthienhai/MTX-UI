@@ -42,8 +42,12 @@ export function sanitizePathName(pathName: string): string | null {
 // Auth helper moved to lib/server-auth.ts. The previous implementation only
 // did substring matching on the cookie name and accepted any non-empty
 // Authorization value, which was effectively unauthenticated. Snapshot route
-// handlers should call requireDashboardAuth() directly.
-export { requireDashboardAuth as isAuthenticated } from "./server-auth"
+// handlers should call resolveCredential() directly.
+import { resolveCredential as _resolveCredential } from "./server-auth"
+/** @deprecated Use resolveCredential directly. Returns a ParsedCredential or null. */
+export async function isAuthenticated(request: Request) {
+  return await _resolveCredential(request)
+}
 
 /**
  * Resolve the full filesystem path for a snapshot file, with traversal protection.

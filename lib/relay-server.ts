@@ -553,11 +553,34 @@ export async function createEvent(
 }
 
 export async function setEventRecord(event: ResolvedEvent, enabled: boolean, authOverride?: string): Promise<void> {
-  await mtxFetch(
-    `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
-    { method: "PATCH", body: JSON.stringify({ record: !!enabled }) },
-    authOverride,
-  )
+  if (enabled) {
+    // Before enabling record, ensure recordPath is set so files
+    // actually land on disk in a known location.
+    const conf = await mtxFetch<Record<string, unknown>>(
+      `/v3/config/paths/get/${encodeURIComponent(event.pathName)}`,
+      undefined,
+      authOverride,
+    ).catch(() => ({}))
+    const currentRecordPath = typeof conf?.recordPath === "string" ? conf.recordPath.trim() : ""
+    const patch: Record<string, unknown> = { record: true }
+    if (!currentRecordPath) {
+      patch.recordPath = "./recordings/%path/"
+    }
+    if (!conf?.recordFormat || conf.recordFormat === "") {
+      patch.recordFormat = "fmp4"
+    }
+    await mtxFetch(
+      `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+      authOverride,
+    )
+  } else {
+    await mtxFetch(
+      `/v3/config/paths/patch/${encodeURIComponent(event.pathName)}`,
+      { method: "PATCH", body: JSON.stringify({ record: false }) },
+      authOverride,
+    )
+  }
   audit("record.set", event, { enabled: !!enabled })
 }
 

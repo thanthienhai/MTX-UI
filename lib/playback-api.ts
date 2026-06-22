@@ -32,14 +32,9 @@ function withQuery(endpoint: string, query: Record<string, string | number | boo
   return `${endpoint}${endpoint.includes("?") ? "&" : "?"}${queryString}`
 }
 
-import { getAuthHeader } from "./auth"
-
 export async function listRecordings(params: PlaybackListParams): Promise<PlaybackSegment[]> {
   const url = withQuery("/api/playback/list", params)
-  const auth = getAuthHeader()
-  const headers: Record<string, string> = { Accept: "application/json" }
-  if (auth) headers.Authorization = auth
-  const response = await fetch(url, { cache: "no-store", headers })
+  const response = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } })
   if (!response.ok) {
     throw new Error(`Không thể tải danh sách bản ghi (${response.status})`)
   }
@@ -59,10 +54,7 @@ export function buildPlaybackSegmentUrl(params: PlaybackGetParams): string {
  */
 export async function fetchPlaybackSegmentBlobUrl(params: PlaybackGetParams): Promise<string> {
   const url = buildPlaybackSegmentUrl(params)
-  const auth = getAuthHeader()
-  const headers: Record<string, string> = {}
-  if (auth) headers.Authorization = auth
-  const response = await fetch(url, { cache: "no-store", headers })
+  const response = await fetch(url, { cache: "no-store" })
   if (!response.ok) {
     throw new Error(`Không thể tải segment (${response.status})`)
   }

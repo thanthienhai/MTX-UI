@@ -1,4 +1,6 @@
-import { getAuthHeader } from "./auth"
+// Auth now handled via HttpOnly cookie — no client-side auth header needed.
+// The server proxy (/api/mediamtx/*) reads the session cookie and injects
+// the Authorization header before forwarding to MediaMTX.
 import { buildMediaMtxApiUrl } from "./mediamtx-url.mjs"
 
 type JsonObject = Record<string, unknown>
@@ -458,11 +460,9 @@ export async function fetchMediaMtxApi<TResponse = unknown, TBody = unknown>(
 ): Promise<TResponse> {
   const method = options.method || "GET"
   const endpointWithQuery = withQuery(endpoint, options.query)
-  const authHeader = getAuthHeader()
   const headers = new Headers(options.headers)
 
   headers.set("Accept", "application/json")
-  if (authHeader) headers.set("Authorization", authHeader)
 
   const init: RequestInit = {
     method,
@@ -660,12 +660,9 @@ export interface MediaMtxServerInfo {
  * header không có hoặc không parse được.
  */
 export async function getMediaMtxServerInfo(): Promise<MediaMtxServerInfo> {
-  const authHeader = getAuthHeader()
-  const headers = new Headers({ Accept: "application/json" })
-  if (authHeader) headers.set("Authorization", authHeader)
   const response = await fetch(buildMediaMtxApiUrl("/v3/config/global/get"), {
     method: "GET",
-    headers,
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
   await response.body?.cancel()

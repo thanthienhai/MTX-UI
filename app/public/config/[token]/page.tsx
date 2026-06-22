@@ -1,13 +1,20 @@
 "use client"
 
-import { use, useCallback, useEffect, useState } from "react"
-import { Copy, RefreshCw, LogOut, Plus, Pencil, Trash2, Check, X } from "lucide-react"
+import { use, useCallback, useEffect, useRef, useState } from "react"
+import {
+  Copy, RefreshCw, LogOut, Plus, Pencil, Trash2, Check, X,
+  Menu, Settings, Shield, Radio, Video, Key, Timer,
+} from "lucide-react"
 import { LOGO_SRC } from "@/lib/branding"
 import { StreamPlayer } from "@/components/stream-player"
+import { RecordingTimer } from "@/components/recording-timer"
+import { StatusPill } from "@/components/status-pill"
 import { Button } from "@/components/ui/button"
+import { copyToClipboard } from "@/lib/clipboard"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 
 interface ConfigDestination {
   id: string
@@ -75,36 +82,6 @@ function basePath() {
   return (process.env.NEXT_PUBLIC_BASE_PATH || "").replace(/\/+$/, "")
 }
 
-/**
- * Copy text to the clipboard. The async Clipboard API only exists in secure
- * contexts (HTTPS / localhost); over plain HTTP it's undefined, so fall back to
- * a hidden-textarea + execCommand("copy") which works without a secure context.
- */
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // fall through to the legacy path below
-  }
-  try {
-    const ta = document.createElement("textarea")
-    ta.value = text
-    ta.setAttribute("readonly", "")
-    ta.style.position = "fixed"
-    ta.style.left = "-9999px"
-    document.body.appendChild(ta)
-    ta.select()
-    const ok = document.execCommand("copy")
-    document.body.removeChild(ta)
-    return ok
-  } catch {
-    return false
-  }
-}
-
 function formatBytes(bytes: number): string {
   if (!bytes || bytes < 0) return "0 bytes"
   const units = ["bytes", "KB", "MB", "GB", "TB"]
@@ -123,19 +100,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   custom: "Tùy chỉnh",
 }
 
-function StatusPill({ on, labelOn = "Online", labelOff = "Offline" }: { on: boolean; labelOn?: string; labelOff?: string }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-        on ? "bg-[#05b169] text-white" : "bg-[#eef0f3] text-[#5b616e]"
-      }`}
-    >
-      <span className={`h-2 w-2 rounded-full ${on ? "bg-white" : "bg-[#9aa0a6]"}`} />
-      {on ? labelOn : labelOff}
-    </span>
-  )
-}
-
 export default function PublicConfigPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const apiBase = `${basePath()}/api/public/config/${encodeURIComponent(token)}`
@@ -146,6 +110,19 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  const sections = {
+    event: useRef<HTMLDivElement>(null),
+    fallback: useRef<HTMLDivElement>(null),
+    destinations: useRef<HTMLDivElement>(null),
+    recordings: useRef<HTMLDivElement>(null),
+    security: useRef<HTMLDivElement>(null),
+  }
+
+  const scrollTo = (ref: React.RefObject<HTMLDivElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
 
   const load = useCallback(async () => {
     try {
@@ -233,188 +210,395 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
   const online = runtime.online
 
   return (
-    <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d]">
-      <div className="bg-[#0a0b0d] text-white">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="flex items-center gap-3">
-            <img src={LOGO_SRC} alt="SIPVY" className="h-11 w-auto" />
-            <div>
-              <h1 className="text-xl font-semibold">Cấu hình sự kiện</h1>
-              <p className="text-sm text-[#a8acb3]">{data.displayName}</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              className="rounded-full bg-[#16181c] text-white hover:bg-[#23262d]"
-              onClick={() => load()}
-              disabled={busy}
-            >
-              <RefreshCw className="h-4 w-4" /> Làm mới
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="rounded-full bg-white text-[#0a0b0d] hover:bg-[#eef0f3]"
+    <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d] flex">
+      {/* ===== Left Sidebar ===== */}
+      <aside
+        className={`${
+          sidebarOpen ? "w-56" : "w-0"
+        } transition-all duration-300 bg-[#0a0b0d] text-white shrink-0 overflow-hidden flex flex-col`}
+      >
+        <div className="flex items-center justify-between p-4">
+          {sidebarOpen && <img src={LOGO_SRC} alt="SIPVY" className="h-8 w-auto" />}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="rounded-lg p-1.5 hover:bg-[#16181c] transition-colors"
+            title="Thu gọn sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
+        {sidebarOpen && (
+          <nav className="flex-1 space-y-1 px-3 pb-4 text-sm">
+            <SidebarItem icon={<Settings className="h-4 w-4" />} label="Cấu hình sự kiện" onClick={() => scrollTo(sections.event)} />
+            <SidebarItem icon={<Shield className="h-4 w-4" />} label="Nguồn dự phòng" onClick={() => scrollTo(sections.fallback)} />
+            <SidebarItem icon={<Radio className="h-4 w-4" />} label="Luồng đích" onClick={() => scrollTo(sections.destinations)} />
+            <SidebarItem icon={<Video className="h-4 w-4" />} label="File record" onClick={() => scrollTo(sections.recordings)} />
+            <hr className="my-2 border-[#23262d]" />
+            <SidebarItem icon={<Key className="h-4 w-4" />} label="Đổi mã đăng nhập" onClick={() => scrollTo(sections.security)} />
+            <SidebarItem
+              icon={<LogOut className="h-4 w-4" />}
+              label="Đăng xuất"
               onClick={async () => {
                 await postAction({ action: "logout" })
                 setNeedLogin(true)
                 setData(null)
               }}
-            >
-              <LogOut className="h-4 w-4" /> Đăng xuất
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-5xl space-y-5 px-4 py-8 sm:px-6">
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            />
+          </nav>
         )}
+      </aside>
 
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      {/* Sidebar open button when collapsed */}
+      {!sidebarOpen && (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="fixed left-2 top-2 z-50 rounded-lg bg-[#0a0b0d] p-2 text-white hover:bg-[#16181c] transition-colors"
+          title="Mở sidebar"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      )}
+
+      {/* ===== Main Content ===== */}
+      <div className="flex-1 min-w-0">
+        {/* Header */}
+        <header className="bg-[#0a0b0d] text-white">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
+            <div>
+              <h2 className="text-xs font-medium text-[#a8acb3] uppercase tracking-wider">Cấu hình sự kiện</h2>
+              <h1 className="text-xl font-semibold mt-0.5">
+                {data.displayName}
+                <span className="text-[#a8acb3] font-normal ml-2">— {data.slug}</span>
+              </h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="rounded-full bg-[#16181c] text-white hover:bg-[#23262d]"
+                onClick={() => load()}
+                disabled={busy}
+              >
+                <RefreshCw className="h-4 w-4 mr-1" /> Làm mới
+              </Button>
+              <Button
+                size="sm"
+                className="rounded-full bg-[#0052ff] hover:bg-[#003ecc] text-white"
+                onClick={() => load()}
+                disabled={busy}
+              >
+                <Check className="h-4 w-4 mr-1" /> Lưu lại
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+          )}
+
+          {/* ===== Two-column main area ===== */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[65%_35%]">
+            {/* ----- Left column ~65% ----- */}
+            <div className="space-y-5">
+              {/* Preview livestream */}
+              <div ref={sections.event}>
+                <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle>Preview livestream</CardTitle>
+                    <StatusPill on={online} />
+                  </CardHeader>
+                  <CardContent>
+                    {online ? (
+                      <StreamPlayer
+                        hlsUrl={`${basePath()}/api/public/hls/${encodeURIComponent(data.statusToken)}/index.m3u8`}
+                      />
+                    ) : (
+                      <div
+                        className="flex w-full items-center justify-center rounded-2xl bg-[#0a0b0d] text-sm text-[#a8acb3]"
+                        style={{ aspectRatio: "16/9" }}
+                      >
+                        Nguồn đang offline. Preview sẽ sẵn sàng khi có tín hiệu.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Thông số cấu hình (Relay Settings) */}
+              <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+                <CardHeader>
+                  <CardTitle>Thông số cấu hình</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {typeof window !== "undefined" && !window.isSecureContext && ingest.rtmp && (
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                      ⚠ Trang đang mở qua HTTP (không SSL). RTMPS có thể không hoạt động —
+                      dùng <strong>RTMP</strong> bên dưới để đẩy luồng qua cổng không mã hoá.
+                    </div>
+                  )}
+
+                  {/* RTMP */}
+                  <div className="space-y-2 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-4">
+                    <h4 className="text-sm font-semibold text-[#0a0b0d]">RTMP</h4>
+                    <CopyRow label="RTMP URL" value={ingest.rtmp} />
+                    <CopyRow label="RTMP Key" value={data.slug} />
+                  </div>
+
+                  {/* SRT */}
+                  <div className="space-y-2 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-4">
+                    <h4 className="text-sm font-semibold text-[#0a0b0d]">SRT</h4>
+                    <CopyRow label="SRT URL" value={ingest.srt} />
+                    <CopyRow
+                      label="SRT Stream ID (đẩy)"
+                      value={ingest.srtStreamId}
+                      rotatable
+                      onRotate={async () => {
+                        if (!confirm("Tạo mới Stream ID? Stream key cũ sẽ ngừng hoạt động.")) return
+                        const ok = await postAction({ action: "rotate_stream_id" })
+                        if (ok) load()
+                      }}
+                    />
+                    <CopyRow label="SRT Stream ID (nhận)" value={ingest.srtReadStreamId} />
+                  </div>
+
+                  {/* SRT push details */}
+                  <div className="space-y-1 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-4 text-xs text-[#5b616e]">
+                    <h4 className="text-sm font-semibold text-[#0a0b0d] mb-2">Thông số SRT đẩy luồng</h4>
+                    <Line label="Type" value="Caller" />
+                    <Line label="Hostname" value={ingest.srt ? new URL(ingest.srt).hostname : "—"} />
+                    <Line label="Port" value={ingest.srt ? new URL(ingest.srt).port || "6000" : "—"} />
+                    <Line label="Stream ID" value={ingest.srtStreamId} />
+                    <Line label="Latency (khuyến nghị)" value="120 ms" />
+                    <Line label="Passphrase" value="không yêu cầu" />
+                  </div>
+
+                  {/* Codec recommendation */}
+                  <div className="text-xs text-[#7c828a]">
+                    Codec khuyến nghị: H.264 + AAC. Facebook không hỗ trợ HEVC.
+                  </div>
+
+                  {/* Status link */}
+                  <CopyRow
+                    label="Link xem trạng thái"
+                    value={`${typeof window !== "undefined" ? window.location.origin : ""}${basePath()}/public/status/${data.statusToken}`}
+                  />
+
+                  {/* Copy all config button */}
+                  <Button
+                    variant="secondary"
+                    className="w-full rounded-full"
+                    onClick={async () => {
+                      const configText = [
+                        `RTMP URL: ${ingest.rtmp}`,
+                        `RTMP Key: ${data.slug}`,
+                        `SRT URL: ${ingest.srt}`,
+                        `SRT Stream ID (đẩy): ${ingest.srtStreamId}`,
+                        `SRT Stream ID (nhận): ${ingest.srtReadStreamId}`,
+                        `Link xem trạng thái: ${typeof window !== "undefined" ? window.location.origin : ""}${basePath()}/public/status/${data.statusToken}`,
+                      ].join("\n")
+                      await copyToClipboard(configText)
+                    }}
+                  >
+                    <Copy className="h-4 w-4 mr-1" /> Copy thông số cấu hình
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* ----- Right column ~35% ----- */}
+            <div className="space-y-5">
+              {/* Tín hiệu nguồn */}
+              <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>Tín hiệu nguồn</CardTitle>
+                  <StatusPill on={online} />
+                </CardHeader>
+                <CardContent className="space-y-1 text-sm">
+                  <Line label="Nguồn" value={runtime.sourceType || "Chưa có"} />
+                  <Line label="Tracks" value={runtime.tracks.length ? runtime.tracks.join(", ") : "Chưa có"} />
+                  <Line label="Người xem preview" value={String(runtime.readers)} />
+                  <Line
+                    label="Dữ liệu"
+                    value={`Nhận ${formatBytes(runtime.bytesReceived)} • Gửi ${formatBytes(runtime.bytesSent)}`}
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Nguồn dự phòng (Fallback) */}
+              <div ref={sections.fallback}>
+                <FallbackCard
+                  fallback={data.fallback}
+                  busy={busy}
+                  uploadUrl={`${apiBase}/asset`}
+                  postAction={postAction}
+                  onChanged={load}
+                />
+              </div>
+
+              {/* Record */}
+              <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <CardTitle>Record</CardTitle>
+                    <StatusPill on={data.recordEnabled} labelOn="Đang ghi" labelOff="Tắt" />
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Timer */}
+                  <div className="flex items-center justify-center">
+                    <div className="inline-flex items-center gap-2 rounded-xl bg-[#0a0b0d] px-4 py-2 text-white font-mono text-xl tabular-nums">
+                      <Timer className="h-5 w-5 text-red-400" />
+                      {data.recordEnabled ? (
+                        <RecordingTimer startedAt={new Date().toISOString()} className="text-xl" />
+                      ) : (
+                        <span>00:00:00</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <Button
+                      onClick={() => postAction({ action: "set_record", enabled: !data.recordEnabled }).then((ok) => ok && load())}
+                      disabled={busy}
+                      variant={data.recordEnabled ? "destructive" : "default"}
+                      className="flex-1 rounded-full py-5 text-base font-semibold"
+                    >
+                      {data.recordEnabled ? "Dừng record" : "Bật record"}
+                    </Button>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#5b616e]">Tự động record</span>
+                    <Switch
+                      checked={data.recordEnabled}
+                      onCheckedChange={(checked) =>
+                        postAction({ action: "set_record", enabled: checked }).then((ok) => ok && load())
+                      }
+                      disabled={busy}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Đẩy stream */}
+              <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>Đẩy stream</CardTitle>
+                  <StatusPill on={data.relayEnabled} labelOn="Đang đẩy" labelOff="Stopped" />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-sm text-[#5b616e] text-center">
+                    Đang bật <strong className="text-[#0a0b0d]">{data.enabledCount}</strong> / {data.quota} luồng
+                  </div>
+                  <Button
+                    onClick={() => postAction({ action: "set_relay", enabled: !data.relayEnabled }).then((ok) => ok && load())}
+                    disabled={busy}
+                    variant={data.relayEnabled ? "destructive" : "default"}
+                    className="w-full rounded-full py-5 text-base font-semibold"
+                  >
+                    {data.relayEnabled ? "Dừng stream" : "Bắt đầu stream"}
+                  </Button>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#5b616e]">Tự động đẩy stream</span>
+                    <Switch
+                      checked={data.relayEnabled}
+                      onCheckedChange={(checked) =>
+                        postAction({ action: "set_relay", enabled: checked }).then((ok) => ok && load())
+                      }
+                      disabled={busy}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* ===== Bottom full-width sections ===== */}
+
+          {/* Danh sách luồng đích */}
+          <div ref={sections.destinations}>
+            <DestinationsCard
+              data={data}
+              busy={busy}
+              postAction={postAction}
+              onChanged={load}
+            />
+          </div>
+
+          {/* File đã record */}
+          <div ref={sections.recordings}>
+            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
+              <CardHeader>
+                <CardTitle>File đã record</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-4 text-sm text-[#5b616e]">
+                  <span>Tổng dung lượng: <strong className="text-[#0a0b0d]">—</strong></span>
+                  <span>Tổng thời lượng: <strong className="text-[#0a0b0d]">—</strong></span>
+                  <span className="text-amber-600 text-xs">Tự động xoá sau 30 ngày</span>
+                </div>
+                <p className="text-sm text-[#7c828a]">Chưa có file record nào.</p>
+                <Button size="sm" variant="secondary" onClick={load} disabled={busy}>
+                  <RefreshCw className="h-4 w-4 mr-1" /> Cập nhật danh sách record
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Logs */}
           <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Preview livestream</CardTitle>
-              <StatusPill on={online} />
+            <CardHeader>
+              <CardTitle>Logs</CardTitle>
             </CardHeader>
             <CardContent>
-              {online ? (
-                <StreamPlayer
-                  hlsUrl={`${basePath()}/api/public/hls/${encodeURIComponent(data.statusToken)}/index.m3u8`}
-                />
-              ) : (
-                <div
-                  className="flex w-full items-center justify-center rounded-2xl bg-[#0a0b0d] text-sm text-[#a8acb3]"
-                  style={{ aspectRatio: "16/9" }}
-                >
-                  Nguồn đang offline. Preview sẽ sẵn sàng khi có tín hiệu.
-                </div>
-              )}
+              <AuditCard entries={data.audit} />
             </CardContent>
           </Card>
 
-          <div className="space-y-5">
-            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Tín hiệu nguồn</CardTitle>
-                <StatusPill on={online} />
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <Line label="Nguồn" value={runtime.sourceType || "Chưa có"} />
-                <Line label="Tracks" value={runtime.tracks.length ? runtime.tracks.join(", ") : "Chưa có"} />
-                <Line label="Người xem preview" value={String(runtime.readers)} />
-                <Line
-                  label="Dữ liệu"
-                  value={`Nhận ${formatBytes(runtime.bytesReceived)} • Gửi ${formatBytes(runtime.bytesSent)}`}
-                />
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Record</CardTitle>
-                <StatusPill on={data.recordEnabled} labelOn="Đang bật" labelOff="Tắt" />
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={() => postAction({ action: "set_record", enabled: !data.recordEnabled }).then((ok) => ok && load())}
-                  disabled={busy}
-                  variant={data.recordEnabled ? "destructive" : "default"}
-                >
-                  {data.recordEnabled ? "Dừng record" : "Bật record"}
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Đẩy stream</CardTitle>
-                <StatusPill on={data.relayEnabled} labelOn="Đang đẩy" labelOff="Tắt" />
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="text-sm text-[#5b616e]">
-                  Đang bật <strong className="text-[#0a0b0d]">{data.enabledCount}</strong> / {data.quota} luồng
-                </div>
-                <Button
-                  onClick={() => postAction({ action: "set_relay", enabled: !data.relayEnabled }).then((ok) => ok && load())}
-                  disabled={busy}
-                  variant={data.relayEnabled ? "destructive" : "default"}
-                >
-                  {data.relayEnabled ? "Dừng stream" : "Bắt đầu stream"}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        <Card className="rounded-3xl border-[#dee1e6] bg-white shadow-none">
-          <CardHeader>
-            <CardTitle>Thông số cấu hình</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <CopyRow label="RTMPS URL (full key)" value={ingest.rtmps} />
-            <CopyRow label="SRT URL" value={ingest.srt} />
-            <CopyRow label="SRT Stream ID (đẩy)" value={ingest.srtStreamId} rotatable onRotate={async () => {
-              if (!confirm("Tạo mới Stream ID? Stream key cũ sẽ ngừng hoạt động.")) return
-              const ok = await postAction({ action: "rotate_stream_id" })
-              if (ok) load()
-            }} />
-            <CopyRow label="SRT Stream ID (nhận)" value={ingest.srtReadStreamId} />
-            <div className="pt-1 text-xs text-[#7c828a]">
-              Codec khuyến nghị: H.264 + AAC. Facebook không hỗ trợ HEVC.
-            </div>
-            <CopyRow
-              label="Link xem trạng thái"
-              value={`${typeof window !== "undefined" ? window.location.origin : ""}${basePath()}/public/status/${data.statusToken}`}
+          {/* Bảo mật */}
+          <div ref={sections.security}>
+            <SecurityCard
+              busy={busy}
+              postAction={postAction}
+              configToken={data.configToken}
+              statusToken={data.statusToken}
+              onConfigTokenRotated={(newToken) => {
+                window.location.href = `${basePath()}/public/config/${encodeURIComponent(newToken)}`
+              }}
+              onReload={load}
             />
-          </CardContent>
-        </Card>
+            <ChangeCodeCard
+              onSubmit={async (newCode) => {
+                const ok = await postAction({ action: "change_config_code", newCode })
+                if (ok) {
+                  setNeedLogin(true)
+                  setData(null)
+                }
+                return ok
+              }}
+              busy={busy}
+            />
+          </div>
 
-        <DestinationsCard
-          data={data}
-          busy={busy}
-          postAction={postAction}
-          onChanged={load}
-        />
-
-        <FallbackCard
-          fallback={data.fallback}
-          busy={busy}
-          uploadUrl={`${apiBase}/asset`}
-          postAction={postAction}
-          onChanged={load}
-        />
-
-        <AuditCard entries={data.audit} />
-
-        <SecurityCard
-          busy={busy}
-          postAction={postAction}
-          configToken={data.configToken}
-          statusToken={data.statusToken}
-          onConfigTokenRotated={(newToken) => {
-            // Old token is invalid — jump to the new URL.
-            window.location.href = `${basePath()}/public/config/${encodeURIComponent(newToken)}`
-          }}
-          onReload={load}
-        />
-
-        <ChangeCodeCard
-          onSubmit={async (newCode) => {
-            const ok = await postAction({ action: "change_config_code", newCode })
-            if (ok) {
-              setNeedLogin(true)
-              setData(null)
-            }
-            return ok
-          }}
-          busy={busy}
-        />
+          {/* Footer */}
+          <footer className="text-center text-xs text-[#9aa0a6] py-6 border-t border-[#dee1e6]">
+            © 2026 Bản quyền thuộc về TRONG KIEM Production
+          </footer>
+        </div>
       </div>
     </div>
+  )
+}
+
+function SidebarItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[#a8acb3] hover:bg-[#16181c] hover:text-white transition-colors"
+    >
+      {icon}
+      {label}
+    </button>
   )
 }
 
