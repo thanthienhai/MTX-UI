@@ -75,8 +75,12 @@ export async function POST(request: Request) {
 
     let response: Response
     try {
+      const apiUrl = buildMediaMtxApiUrl("/v3/config/global/get")
+      const upstreamUrl = apiUrl.startsWith("http")
+        ? apiUrl
+        : new URL(apiUrl, request.url).toString()
       response = await fetch(
-        buildMediaMtxApiUrl("/v3/config/global/get"),
+        upstreamUrl,
         {
           headers: {
             Accept: "application/json",
