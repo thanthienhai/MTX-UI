@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useCallback, useEffect, useRef, useState } from "react"
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Copy, RefreshCw, LogOut, Plus, Pencil, Trash2, Check, X,
   Menu, Settings, Shield, Radio, Video, Key, Timer,
@@ -220,6 +220,10 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
 
   const { runtime, ingest } = data
   const online = runtime.online
+  const previewHlsUrl = useMemo(
+    () => `${basePath()}/api/public/hls/${encodeURIComponent(data.statusToken)}/index.m3u8`,
+    [data.statusToken],
+  )
 
   return (
     <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d] flex">
@@ -323,9 +327,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
                   </CardHeader>
                   <CardContent>
                     {online ? (
-                      <StreamPlayer
-                        hlsUrl={`${basePath()}/api/public/hls/${encodeURIComponent(data.statusToken)}/index.m3u8`}
-                      />
+                      <StreamPlayer hlsUrl={previewHlsUrl} />
                     ) : (
                       <div
                         className="flex w-full items-center justify-center rounded-2xl bg-[#0a0b0d] text-sm text-[#a8acb3]"

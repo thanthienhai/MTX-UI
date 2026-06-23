@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useCallback, useEffect, useState } from "react"
+import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { Activity, RefreshCw } from "lucide-react"
 import { StreamPlayer } from "@/components/stream-player"
 import { LOGO_SRC } from "@/lib/branding"
@@ -130,6 +130,10 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
 
   const { runtime } = data
   const online = runtime.online
+  const previewHlsUrl = useMemo(
+    () => `${basePath()}/api/public/hls/${encodeURIComponent(token)}/index.m3u8`,
+    [token],
+  )
 
   return (
     <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d]">
@@ -172,7 +176,7 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
           </CardHeader>
           <CardContent>
             {online ? (
-              <StreamPlayer hlsUrl={`${basePath()}/api/public/hls/${encodeURIComponent(token)}/index.m3u8`} />
+              <StreamPlayer hlsUrl={previewHlsUrl} />
             ) : (
               <div
                 className="flex w-full items-center justify-center rounded-2xl bg-[#0a0b0d] text-sm text-[#a8acb3]"
