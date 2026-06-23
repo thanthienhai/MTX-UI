@@ -108,7 +108,11 @@ export async function saveAsset(
   if (data.length > maxBytes()) throw new Error("too_large")
 
   const dir = assetDir()
-  await mkdir(dir, { recursive: true })
+  try {
+    await mkdir(dir, { recursive: true })
+  } catch {
+    throw new Error("storage_unavailable")
+  }
   const id = randomBytes(16).toString("hex")
   const name = String(opts.originalName || `slate.${ALLOWED_MIME[mime]}`).slice(0, 200)
   await writeFile(path.join(dir, id), data)

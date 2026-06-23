@@ -8,7 +8,7 @@ test.describe("Login flow", () => {
 
     await page.goto("/")
     await expect(page.getByText("Bảng điều khiển MediaMTX")).toBeVisible()
-    await expect(page.getByText("Đăng nhập")).toBeVisible()
+    await expect(page.getByRole("button", { name: "Đăng nhập" })).toBeVisible()
   })
 
   test("shows error on invalid credentials", async ({ page }) => {
@@ -96,7 +96,7 @@ test.describe("Recording", () => {
 
     await page.goto("/")
     await page.getByText("Ghi hình").click()
-    await expect(page.getByText("Recording Status")).toBeVisible()
+    await expect(page.getByText("Trạng thái ghi hình")).toBeVisible()
   })
 })
 
@@ -110,7 +110,7 @@ test.describe("Playback", () => {
     })
 
     await page.goto("/")
-    await page.getByText("Xem lại").click()
-    await expect(page.getByText("Playback")).toBeVisible()
+    await page.getByText("Ghi hình").click()
+    await expect(page.getByText("Playback bản ghi")).toBeVisible()
   })
 })

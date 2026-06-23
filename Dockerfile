@@ -81,6 +81,10 @@ RUN mkdir -p .next && chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Relay-assets storage directory — must exist and be writable by nextjs user
+# so fallback image/video uploads (saveAsset) can create files at runtime.
+RUN mkdir -p /data/relay-assets && chown -R nextjs:nodejs /data
+
 USER nextjs
 EXPOSE 3000
 

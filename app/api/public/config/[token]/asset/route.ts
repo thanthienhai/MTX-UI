@@ -65,7 +65,9 @@ export async function POST(request: Request, context: { params: Promise<{ token?
           ? "Tệp rỗng"
           : code === "unsupported_type"
             ? "Định dạng không hỗ trợ"
-            : "Không lưu được tệp"
+            : code === "storage_unavailable"
+              ? "Không thể ghi tệp — kiểm tra quyền thư mục lưu trữ"
+              : "Không lưu được tệp"
     return Response.json({ error: msg }, { status: 400 })
   }
 }

@@ -12,6 +12,7 @@ __pycache__/
 .next
 next-env.d.ts
 node_modules/
+test-results/
 docker-compose-test.yml
 nginx/nginx2.conf
 nginx/nginx3.conf

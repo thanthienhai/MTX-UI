@@ -15,7 +15,7 @@ test.describe("Login flow", () => {
 
     // Should redirect to login
     await expect(page).toHaveURL(/\/login/)
-    await expect(page.getByText("MediaMTX Dashboard")).toBeVisible()
+    await expect(page.getByText("Bảng điều khiển MediaMTX")).toBeVisible()
   })
 
   test("shows error on invalid credentials", async ({ page }) => {
