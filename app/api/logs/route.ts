@@ -4,7 +4,7 @@ import { isAuthenticated } from "@/lib/snapshot-utils"
 
 const MAX_BYTES = 2 * 1024 * 1024 // 2 MiB tail cap
 
-function resolveAllowedLogFile(): string | null {
+const resolveAllowedLogFile = (): string | null => {
   const configured = process.env.MEDIAMTX_LOG_FILE
   if (!configured) return null
   return path.resolve(configured)

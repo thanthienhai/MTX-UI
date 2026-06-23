@@ -582,7 +582,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
 
           {/* Footer */}
           <footer className="text-center text-xs text-[#9aa0a6] py-6 border-t border-[#dee1e6]">
-            © 2026 Bản quyền thuộc về TRONG KIEM Production
+            © 2026 Bản quyền thuộc về SIPVY
           </footer>
         </div>
       </div>
@@ -778,11 +778,11 @@ function DestinationForm({
     <div className="space-y-2 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-3">
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         <div>
-          <Label className="text-xs">Tên</Label>
+          <Label className="block mb-1.5 text-xs">Tên</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-white" />
         </div>
         <div>
-          <Label className="text-xs">Nền tảng</Label>
+          <Label className="block mb-1.5 text-xs">Nền tảng</Label>
           <select
             value={platform}
             onChange={(e) => setPlatform(e.target.value)}
@@ -794,7 +794,7 @@ function DestinationForm({
           </select>
         </div>
         <div className="md:col-span-2">
-          <Label className="text-xs">Server URL (rtmp / rtmps / srt)</Label>
+          <Label className="block mb-1.5 text-xs">Server URL (rtmp / rtmps / srt)</Label>
           <Input
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
@@ -803,7 +803,7 @@ function DestinationForm({
           />
         </div>
         <div className="md:col-span-2">
-          <Label className="text-xs">Stream key</Label>
+          <Label className="block mb-1.5 text-xs">Stream key</Label>
           <Input
             value={streamKey}
             onChange={(e) => setStreamKey(e.target.value)}
@@ -1027,7 +1027,7 @@ function FallbackCard({
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <Label className="text-xs">Loại</Label>
+            <Label className="block mb-1.5 text-xs">Loại</Label>
             <select
               value={type}
               onChange={(e) => setType(e.target.value as never)}
@@ -1041,7 +1041,7 @@ function FallbackCard({
           </div>
           {type === "text" && (
             <div className="min-w-[240px] flex-1">
-              <Label className="text-xs">Nội dung (≤ 200 ký tự)</Label>
+              <Label className="block mb-1.5 text-xs">Nội dung (≤ 200 ký tự)</Label>
               <Input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -1232,7 +1232,7 @@ function ChangeCodeCard({ onSubmit, busy }: { onSubmit: (code: string) => Promis
         </p>
         <div className="flex items-end gap-2">
           <div className="flex-1">
-            <Label htmlFor="newcode">Mã đăng nhập mới (tối thiểu 6 ký tự)</Label>
+            <Label htmlFor="newcode" className="block mb-2">Mã đăng nhập mới (tối thiểu 6 ký tự)</Label>
             <Input
               id="newcode"
               type="password"
@@ -1308,7 +1308,7 @@ function LoginGate({ apiBase, onSuccess }: { apiBase: string; onSuccess: () => v
           <p className="text-sm text-[#5b616e]">Nhập mã đăng nhập để truy cập trang cấu hình.</p>
           {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>}
           <div>
-            <Label htmlFor="logincode">Mã đăng nhập</Label>
+            <Label htmlFor="logincode" className="block mb-2">Mã đăng nhập</Label>
             <Input
               id="logincode"
               type="password"

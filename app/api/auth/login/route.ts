@@ -8,13 +8,13 @@ import {
 import { MEDIAMTX_ACTIONS, normalizeMediaMtxPermissions } from "@/lib/mediamtx-permissions"
 import type { MediaMtxAction } from "@/lib/mediamtx-permissions"
 
-function isHttpsRequest(request: Request): boolean {
+const isHttpsRequest = (request: Request): boolean => {
   const proto = request.headers.get("x-forwarded-proto") || ""
   if (proto === "https") return true
   return request.url.startsWith("https://")
 }
 
-function resolvePermissionsFromGlobalConfig(globalConfig: unknown, username?: string): Record<string, boolean> {
+const resolvePermissionsFromGlobalConfig = (globalConfig: unknown, username?: string): Record<string, boolean> => {
   if (!username || !globalConfig || typeof globalConfig !== "object") return {}
 
   const users = (globalConfig as { authInternalUsers?: unknown }).authInternalUsers
@@ -40,7 +40,7 @@ function resolvePermissionsFromGlobalConfig(globalConfig: unknown, username?: st
   return resolved
 }
 
-function classifyLoginFailure(status: number): { code: string; message: string } {
+const classifyLoginFailure = (status: number): { code: string; message: string } => {
   if (status === 401) {
     return { code: "invalid_credentials", message: "Tên đăng nhập, mật khẩu hoặc token MediaMTX không hợp lệ." }
   }

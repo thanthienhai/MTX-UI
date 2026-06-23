@@ -19,7 +19,7 @@ import {
 /** Hostname (no port) the owner reached this page on — used as the ingest-URL
  * host when no explicit NEXT_PUBLIC_MEDIAMTX_*_HOST is configured. Prefers the
  * proxy-forwarded host, then the Host header. */
-function requestHostname(request: Request): string | undefined {
+const requestHostname = (request: Request): string | undefined => {
   const raw = request.headers.get("x-forwarded-host") || request.headers.get("host") || ""
   const first = raw.split(",")[0].trim()
   if (!first) return undefined
@@ -27,7 +27,7 @@ function requestHostname(request: Request): string | undefined {
   return first.replace(/:\d+$/, "")
 }
 
-function readCookie(request: Request, name: string): string | undefined {
+const readCookie = (request: Request, name: string): string | undefined => {
   const header = request.headers.get("cookie")
   if (!header) return undefined
   for (const part of header.split(";")) {
@@ -38,7 +38,7 @@ function readCookie(request: Request, name: string): string | undefined {
   return undefined
 }
 
-function clearedCookie(token: string): string {
+const clearedCookie = (token: string): string => {
   return `${CONFIG_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/api/public/config/${encodeURIComponent(token)}; Max-Age=0`
 }
 

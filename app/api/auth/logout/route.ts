@@ -1,6 +1,6 @@
 import { COOKIE_NAME, deleteServerSession } from "@/lib/server-session"
 
-function extractCookie(cookieHeader: string, name: string): string | null {
+const extractCookie = (cookieHeader: string, name: string): string | null => {
   if (!cookieHeader) return null
   for (const part of cookieHeader.split(";")) {
     const trimmed = part.trim()

@@ -1,7 +1,7 @@
 import { deleteEvent, findEventByPath } from "@/lib/relay-server"
 import { resolveCredential, unauthorizedResponse } from "@/lib/server-auth"
 
-async function authHeaderFromCred(request: Request): Promise<string | undefined> {
+const authHeaderFromCred = async (request: Request): Promise<string | undefined> => {
   const cred = await resolveCredential(request)
   if (!cred) return undefined
   return cred.mode === "bearer" ? `Bearer ${cred.value}` : `Basic ${cred.value}`

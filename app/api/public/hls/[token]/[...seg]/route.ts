@@ -16,7 +16,7 @@ import { findEventByToken } from "@/lib/relay-server"
 
 const DEFAULT_HLS_URL = "http://localhost:8888"
 
-function internalHlsBase(): string {
+const internalHlsBase = (): string => {
   const configured =
     process.env.MEDIAMTX_HLS_URL || process.env.NEXT_PUBLIC_MEDIAMTX_HLS_URL || DEFAULT_HLS_URL
   return configured.trim().replace(/\/+$/, "")

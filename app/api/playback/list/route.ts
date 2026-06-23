@@ -2,7 +2,7 @@ import { resolveCredential, unauthorizedResponse } from "@/lib/server-auth"
 
 const DEFAULT_PLAYBACK_URL = "http://localhost:9996"
 
-function normalizePlaybackUrl() {
+const normalizePlaybackUrl = () => {
   const configuredUrl =
     process.env.MEDIAMTX_PLAYBACK_URL ||
     process.env.NEXT_PUBLIC_MEDIAMTX_PLAYBACK_URL ||

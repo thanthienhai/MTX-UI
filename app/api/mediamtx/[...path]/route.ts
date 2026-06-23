@@ -15,7 +15,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ])
 
-function normalizeUpstreamApiUrl() {
+const normalizeUpstreamApiUrl = () => {
   const configuredUrl =
     process.env.MEDIAMTX_API_URL ||
     process.env.NEXT_PUBLIC_MEDIAMTX_SERVER_API_URL ||
@@ -25,7 +25,7 @@ function normalizeUpstreamApiUrl() {
   return configuredUrl.trim().replace(/\/+$/, "").replace(/\/v3\/config$/i, "").replace(/\/v3$/i, "")
 }
 
-function extractCookie(cookieHeader: string, name: string): string | null {
+const extractCookie = (cookieHeader: string, name: string): string | null => {
   if (!cookieHeader) return null
   for (const part of cookieHeader.split(";")) {
     const trimmed = part.trim()
@@ -36,7 +36,7 @@ function extractCookie(cookieHeader: string, name: string): string | null {
   return null
 }
 
-function resolveAuthHeader(request: Request): string | null {
+const resolveAuthHeader = (request: Request): string | null => {
   const cookieHeader = request.headers.get("cookie") || ""
   const sessionId = extractCookie(cookieHeader, COOKIE_NAME)
   if (sessionId) {
@@ -49,7 +49,7 @@ function resolveAuthHeader(request: Request): string | null {
   return auth || null
 }
 
-function buildProxyHeaders(request: Request, authHeader: string | null) {
+const buildProxyHeaders = (request: Request, authHeader: string | null) => {
   const headers = new Headers()
 
   for (const header of ["accept", "content-type"]) {
@@ -66,7 +66,7 @@ function buildProxyHeaders(request: Request, authHeader: string | null) {
   return headers
 }
 
-function responseHeaders(headers: Headers) {
+const responseHeaders = (headers: Headers) => {
   const responseHeaders = new Headers(headers)
 
   for (const header of HOP_BY_HOP_HEADERS) {
@@ -76,7 +76,7 @@ function responseHeaders(headers: Headers) {
   return responseHeaders
 }
 
-async function proxyMediaMtxRequest(request: Request, context: { params: Promise<{ path?: string[] }> }) {
+const proxyMediaMtxRequest = async (request: Request, context: { params: Promise<{ path?: string[] }> }) => {
   const { path = [] } = await context.params
   const upstreamUrl = new URL(path.map(encodeURIComponent).join("/"), `${normalizeUpstreamApiUrl()}/`)
   const incomingUrl = new URL(request.url)

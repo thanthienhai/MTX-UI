@@ -5,7 +5,7 @@ const SESSION_TTL_SECONDS = 2 * 60 * 60
 // Only mark the session cookie `Secure` when the request actually arrived over
 // HTTPS — keying it off NODE_ENV alone breaks plain-HTTP deployments, where the
 // browser silently drops a Secure cookie and the login can never stick (401 loop).
-function isHttpsRequest(request: Request): boolean {
+const isHttpsRequest = (request: Request): boolean => {
   const forwarded = request.headers.get("x-forwarded-proto")
   if (forwarded) return forwarded.split(",")[0].trim().toLowerCase() === "https"
   try {

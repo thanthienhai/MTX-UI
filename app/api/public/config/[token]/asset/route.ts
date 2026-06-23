@@ -1,7 +1,7 @@
 import { findEventByToken, isValidConfigSession, CONFIG_SESSION_COOKIE } from "@/lib/relay-server"
 import { saveAsset, isAllowedMime, fallbackKindForMime } from "@/lib/relay-assets"
 
-function readCookie(request: Request, name: string): string | undefined {
+const readCookie = (request: Request, name: string): string | undefined => {
   const header = request.headers.get("cookie")
   if (!header) return undefined
   for (const part of header.split(";")) {

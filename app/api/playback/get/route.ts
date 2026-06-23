@@ -2,7 +2,7 @@ import { resolveCredential, unauthorizedResponse } from "@/lib/server-auth"
 
 const DEFAULT_PLAYBACK_URL = "http://localhost:9996"
 
-function normalizePlaybackUrl() {
+const normalizePlaybackUrl = () => {
   const configuredUrl =
     process.env.MEDIAMTX_PLAYBACK_URL ||
     process.env.NEXT_PUBLIC_MEDIAMTX_PLAYBACK_URL ||
@@ -15,7 +15,7 @@ function normalizePlaybackUrl() {
  * Build a safe Content-Disposition filename. Strips quotes, CR/LF and
  * anything that isn't filename-safe to prevent header injection.
  */
-function safeFilename(base: string, ext: string): string {
+const safeFilename = (base: string, ext: string): string => {
   const cleaned = base.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "recording"
   return `${cleaned}.${ext}`
 }
