@@ -168,6 +168,8 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
       setRecordStartedAt(null)
     }
   }, [data?.recordEnabled])
+
+  const postAction = useCallback(
     async (payload: Record<string, unknown>) => {
       setBusy(true)
       setError(null)
