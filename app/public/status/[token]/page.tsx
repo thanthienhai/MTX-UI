@@ -102,6 +102,11 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
     return () => clearInterval(id)
   }, [load])
 
+  const previewHlsUrl = useMemo(
+    () => `${basePath()}/api/public/hls/${encodeURIComponent(token)}/index.m3u8`,
+    [token],
+  )
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] text-[#0a0b0d]">
@@ -130,10 +135,6 @@ export default function PublicStatusPage({ params }: { params: Promise<{ token: 
 
   const { runtime } = data
   const online = runtime.online
-  const previewHlsUrl = useMemo(
-    () => `${basePath()}/api/public/hls/${encodeURIComponent(token)}/index.m3u8`,
-    [token],
-  )
 
   return (
     <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d]">

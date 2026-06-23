@@ -195,6 +195,11 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
     [apiBase],
   )
 
+  const previewHlsUrl = useMemo(
+    () => data ? `${basePath()}/api/public/hls/${encodeURIComponent(data.statusToken)}/index.m3u8` : '',
+    [data?.statusToken],
+  )
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f7f7f7] text-[#0a0b0d]">
@@ -220,10 +225,6 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
 
   const { runtime, ingest } = data
   const online = runtime.online
-  const previewHlsUrl = useMemo(
-    () => `${basePath()}/api/public/hls/${encodeURIComponent(data.statusToken)}/index.m3u8`,
-    [data.statusToken],
-  )
 
   return (
     <div className="min-h-screen bg-[#f7f7f7] text-[#0a0b0d] flex">
