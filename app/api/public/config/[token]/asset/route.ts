@@ -1,5 +1,5 @@
 import { findEventByToken, isValidConfigSession, CONFIG_SESSION_COOKIE } from "@/lib/relay-server"
-import { saveAsset, isAllowedMime, fallbackKindForMime } from "@/lib/relay-assets"
+import { saveAsset, isAllowedMime, detectMimeFromExtension, fallbackKindForMime } from "@/lib/relay-assets"
 
 const readCookie = (request: Request, name: string): string | undefined => {
   const header = request.headers.get("cookie")
@@ -40,9 +40,9 @@ export async function POST(request: Request, context: { params: Promise<{ token?
   if (!(file instanceof File)) {
     return Response.json({ error: "Thiếu tệp tải lên" }, { status: 400 })
   }
-  const mime = file.type || ""
+  const mime = file.type || detectMimeFromExtension(file.name) || ""
   if (!isAllowedMime(mime)) {
-    return Response.json({ error: "Định dạng không hỗ trợ (chỉ ảnh PNG/JPG/WEBP/GIF hoặc video MP4/WEBM/MOV)" }, { status: 400 })
+    return Response.json({ error: "Định dạng không hỗ trợ (chỉ file ảnh PNG/JPG/WEBP/GIF/BMP/AVIF/HEIC hoặc video MP4/WEBM/MOV/AVI/3GP/MKV/OGV)" }, { status: 400 })
   }
 
   try {

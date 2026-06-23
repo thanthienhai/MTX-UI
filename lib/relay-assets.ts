@@ -30,11 +30,22 @@ const ID_RE = /^[a-f0-9]{32}$/
 const ALLOWED_MIME: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
+  "image/jpg": "jpg",
   "image/webp": "webp",
   "image/gif": "gif",
+  "image/bmp": "bmp",
+  "image/tiff": "tiff",
+  "image/tif": "tiff",
+  "image/avif": "avif",
+  "image/heic": "heic",
+  "image/heif": "heic",
   "video/mp4": "mp4",
   "video/webm": "webm",
   "video/quicktime": "mov",
+  "video/x-msvideo": "avi",
+  "video/3gpp": "3gp",
+  "video/x-matroska": "mkv",
+  "video/ogg": "ogg",
 }
 
 function assetDir(): string {
@@ -48,6 +59,35 @@ function maxBytes(): number {
 
 export function isAllowedMime(mime: string): boolean {
   return !!ALLOWED_MIME[String(mime || "").toLowerCase()]
+}
+
+const EXT_TO_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  tiff: "image/tiff",
+  tif: "image/tiff",
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heic",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  avi: "video/x-msvideo",
+  "3gp": "video/3gpp",
+  mkv: "video/x-matroska",
+  ogg: "video/ogg",
+  ogv: "video/ogg",
+}
+
+export function detectMimeFromExtension(filename: string): string | null {
+  const dot = filename.lastIndexOf(".")
+  if (dot === -1) return null
+  const ext = filename.slice(dot + 1).toLowerCase()
+  return EXT_TO_MIME[ext] || null
 }
 
 export function fallbackKindForMime(mime: string): "image" | "video" | null {

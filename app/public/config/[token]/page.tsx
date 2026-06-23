@@ -111,6 +111,8 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [copyConfigCopied, setCopyConfigCopied] = useState(false)
+  const [recordStartedAt, setRecordStartedAt] = useState<string | null>(null)
 
   const sections = {
     event: useRef<HTMLDivElement>(null),
@@ -157,7 +159,15 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
     return () => clearInterval(id)
   }, [needLogin, notFound, load])
 
-  const postAction = useCallback(
+  // Track recording start time — capture once when recording becomes enabled,
+  // so polling re-renders don't reset the timer.
+  useEffect(() => {
+    if (data?.recordEnabled && !recordStartedAt) {
+      setRecordStartedAt(new Date().toISOString())
+    } else if (!data?.recordEnabled) {
+      setRecordStartedAt(null)
+    }
+  }, [data?.recordEnabled])
     async (payload: Record<string, unknown>) => {
       setBusy(true)
       setError(null)
@@ -339,11 +349,24 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
                     </div>
                   )}
 
+                  {typeof window !== "undefined" && window.isSecureContext && ingest.rtmps && (
+                    <div className="rounded-lg bg-[#ecfdf3] border border-[#05b169] px-3 py-2 text-xs text-[#05753f]">
+                      ✓ Trang đang mở qua HTTPS — khuyến nghị dùng <strong>RTMPS</strong> để đẩy luồng mã hoá.
+                    </div>
+                  )}
+
                   {/* RTMP */}
                   <div className="space-y-2 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-4">
                     <h4 className="text-sm font-semibold text-[#0a0b0d]">RTMP</h4>
                     <CopyRow label="RTMP URL" value={ingest.rtmp} />
                     <CopyRow label="RTMP Key" value={data.slug} />
+                  </div>
+
+                  {/* RTMPS */}
+                  <div className="space-y-2 rounded-2xl border border-[#dee1e6] bg-[#f7f7f7] p-4">
+                    <h4 className="text-sm font-semibold text-[#0a0b0d]">RTMPS</h4>
+                    <CopyRow label="RTMPS URL" value={ingest.rtmps} />
+                    <CopyRow label="RTMPS Key" value={data.slug} />
                   </div>
 
                   {/* SRT */}
@@ -393,15 +416,22 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
                       const configText = [
                         `RTMP URL: ${ingest.rtmp}`,
                         `RTMP Key: ${data.slug}`,
+                        `RTMPS URL: ${ingest.rtmps}`,
+                        `RTMPS Key: ${data.slug}`,
                         `SRT URL: ${ingest.srt}`,
                         `SRT Stream ID (đẩy): ${ingest.srtStreamId}`,
                         `SRT Stream ID (nhận): ${ingest.srtReadStreamId}`,
                         `Link xem trạng thái: ${typeof window !== "undefined" ? window.location.origin : ""}${basePath()}/public/status/${data.statusToken}`,
                       ].join("\n")
-                      await copyToClipboard(configText)
+                      const ok = await copyToClipboard(configText)
+                      if (ok) {
+                        setCopyConfigCopied(true)
+                        setTimeout(() => setCopyConfigCopied(false), 1500)
+                      }
                     }}
                   >
-                    <Copy className="h-4 w-4 mr-1" /> Copy thông số cấu hình
+                    <Copy className="h-4 w-4 mr-1" />
+                    {copyConfigCopied ? "✓ Đã copy" : "Copy thông số cấu hình"}
                   </Button>
                 </CardContent>
               </Card>
@@ -451,7 +481,7 @@ export default function PublicConfigPage({ params }: { params: Promise<{ token: 
                     <div className="inline-flex items-center gap-2 rounded-xl bg-[#0a0b0d] px-4 py-2 text-white font-mono text-xl tabular-nums">
                       <Timer className="h-5 w-5 text-red-400" />
                       {data.recordEnabled ? (
-                        <RecordingTimer startedAt={new Date().toISOString()} className="text-xl" />
+                        <RecordingTimer startedAt={recordStartedAt} className="text-xl" />
                       ) : (
                         <span>00:00:00</span>
                       )}
@@ -992,7 +1022,7 @@ function FallbackCard({
     try {
       const form = new FormData()
       form.append("file", file)
-      const res = await fetch(uploadUrl, { method: "POST", body: form })
+      const res = await fetch(uploadUrl, { method: "POST", body: form, credentials: "include" })
       const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
       if (!res.ok) {
         setUploadError(typeof json.error === "string" ? json.error : "Tải lên thất bại")
