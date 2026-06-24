@@ -632,6 +632,7 @@ interface FanoutWireOpts {
 /** The three runtime fields that drive a destination's fan-out path. */
 function fanoutRunFields(slug: string, dest: RelayDestination, opts: FanoutWireOpts) {
   return {
+    rtspTransport: "tcp",
     runOnReady: buildFanoutRunOnReady(dest, { slug, relayEnabled: opts.relayEnabled }),
     runOnReadyRestart: opts.relayEnabled && !!dest.enabled,
     runOnNotReady: buildFanoutRunOnNotReady(dest, opts.fallback, {
