@@ -68,6 +68,10 @@ test.describe("Path CRUD", () => {
   })
 
   test("renders login gate for public config page", async ({ page }) => {
+    await page.route("**/api/public/config/*", async (route) => {
+      await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "Login required" }) })
+    })
+
     await page.route("**/api/public/config/*/login", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) })
     })

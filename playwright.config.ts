@@ -9,9 +9,9 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: "npm run build && npm run start",
+    command: "npm run build && node .next/standalone/server.js",
     port: 3000,
-    timeout: 60000,
+    timeout: 120000,
     reuseExistingServer: true,
   },
 })

@@ -75,6 +75,11 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
     "writeQueueSize",
     "udpMaxPayloadSize",
     "udpReadBufferSize",
+    "runOnConnect",
+    "runOnConnectRestart",
+    "runOnDisconnect",
+    "rtspEncryption",
+    "rtmpEncryption",
   ]
 
   // --- Fetch ---
@@ -433,6 +438,10 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
               {renderTextInput("Đường dẫn file log", "logFile", "/var/log/mediamtx.log")}
 
               {renderTextInput("Syslog Prefix", "sysLogPrefix", "mediamtx")}
+
+              {renderTextInput("Lệnh khi có client kết nối", "runOnConnect", "./on-connect.sh")}
+
+              {renderSwitch("Khởi động lại lệnh kết nối", "Tự restart lệnh runOnConnect nếu tiến trình thoát", "runOnConnectRestart")}
             </div>
 
             <div className="space-y-4">
@@ -447,6 +456,20 @@ export function GlobalConfigView({ permissions, username, appendAuditEvent }: Gl
               {renderNumberInput("UDP Max Payload Size", "udpMaxPayloadSize", "1472")}
 
               {renderNumberInput("UDP Read Buffer Size", "udpReadBufferSize", "65536")}
+
+              {renderTextInput("Lệnh khi client ngắt kết nối", "runOnDisconnect", "./on-disconnect.sh")}
+
+              {renderSelect("RTSP Encryption", "rtspEncryption", [
+                { value: "no", label: "Không mã hóa" },
+                { value: "optional", label: "Tùy chọn TLS" },
+                { value: "strict", label: "Bắt buộc TLS" },
+              ])}
+
+              {renderSelect("RTMP Encryption", "rtmpEncryption", [
+                { value: "no", label: "Không mã hóa" },
+                { value: "optional", label: "Tùy chọn TLS" },
+                { value: "strict", label: "Bắt buộc TLS" },
+              ])}
             </div>
           </div>
         </CardContent>
