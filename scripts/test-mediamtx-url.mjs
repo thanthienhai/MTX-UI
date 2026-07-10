@@ -17,6 +17,7 @@ import {
   normalizeMediaMtxMetricsBaseUrl,
   normalizeMediaMtxPlaybackBaseUrl,
   normalizeMediaMtxPprofBaseUrl,
+  normalizeMediaMtxWebRtcBaseUrl,
 } from "../lib/mediamtx-url.mjs"
 
 assert.equal(normalizeMediaMtxApiBaseUrl(undefined), "/api/mediamtx")
@@ -38,9 +39,13 @@ assert.equal(normalizeMediaMtxHlsBaseUrl(undefined), "http://localhost:8888")
 assert.equal(normalizeMediaMtxPlaybackBaseUrl(undefined), "http://localhost:8888")
 assert.equal(normalizeMediaMtxMetricsBaseUrl(undefined), "http://localhost:9998")
 assert.equal(normalizeMediaMtxPprofBaseUrl(undefined), "http://localhost:9999")
+assert.equal(normalizeMediaMtxWebRtcBaseUrl(undefined), "http://localhost:8889")
+assert.equal(normalizeMediaMtxWebRtcBaseUrl("https://stream.example/webrtc/"), "https://stream.example/webrtc")
 assert.equal(buildMediaMtxPlaybackUrl("cam 1", "http://playback/"), "http://playback/cam%201")
 assert.equal(buildMediaMtxMetricsUrl("metrics", "http://metrics/"), "http://metrics/metrics")
 assert.equal(buildMediaMtxPprofUrl("/debug/pprof/profile", "http://pprof/"), "http://pprof/debug/pprof/profile")
+assert.equal(buildMediaMtxWebRtcReadUrl("cam", {}), "http://localhost:8889/cam/whep")
+assert.equal(buildMediaMtxWebRtcPublishUrl("cam", {}), "http://localhost:8889/cam/whip")
 assert.equal(buildMediaMtxWebRtcReadUrl("cam 1", { baseUrl: "http://webrtc/" }), "http://webrtc/cam%201/whep")
 assert.equal(buildMediaMtxWebRtcPublishUrl("cam 1", { baseUrl: "http://webrtc/" }), "http://webrtc/cam%201/whip")
 assert.equal(buildMediaMtxProtocolUrl("rtsp", "cam 1", { address: ":8554" }), "rtsp://localhost:8554/cam%201")
